@@ -10,6 +10,8 @@ class LogManager {
 public:
     LogManager();
     bool begin(QueueHandle_t telemetryQueue);
+    // Remove a telemetry log file (returns true on success)
+    bool removeLog(const char* name);
     static void task(void* param);
 
 private:

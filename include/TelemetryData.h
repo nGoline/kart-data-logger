@@ -16,6 +16,7 @@ struct TelemetryData {
     float gyroZ;
     
     // Metadados
+    // UTC timestamp (seconds since Unix epoch). 0 if unknown.
     uint32_t lastUpdate;
 };
 

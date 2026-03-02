@@ -1,4 +1,5 @@
 #include "StorageManager.h"
+#include <time.h>
 
 StorageManager::StorageManager() : _lastFlushTime(0) {}
 
@@ -36,8 +37,20 @@ void StorageManager::logTelemetry(const TelemetryData &t) {
     rotateIfNeeded();
 
     // CSV: Timestamp,Latitude,Longitude,Speed_kmh,GForce,Satellites,HasFix
-    _logFile.printf("%lu,%.6f,%.6f,%.2f,%.3f,%u,%d\n",
-                    t.lastUpdate,
+    // Format timestamp as ISO8601 UTC if possible (t.lastUpdate is epoch seconds)
+    char timebuf[32] = {0};
+    if (t.lastUpdate >= 1000000000UL) {
+        time_t tt = (time_t)t.lastUpdate;
+        struct tm tm;
+        gmtime_r(&tt, &tm);
+        strftime(timebuf, sizeof(timebuf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    } else {
+        // fallback to seconds since boot
+        snprintf(timebuf, sizeof(timebuf), "%lu", (unsigned long)t.lastUpdate);
+    }
+
+    _logFile.printf("%s,%.6f,%.6f,%.2f,%.3f,%u,%d\n",
+                    timebuf,
                     t.lat,
                     t.lng,
                     t.speed,
@@ -85,4 +98,25 @@ void StorageManager::rotateIfNeeded() {
         _currentLogStartMs = millis();
         openNewLogFile();
     }
+}
+
+bool StorageManager::removeLogFile(const char* name) {
+    if (!name || strlen(name) == 0) return false;
+    String n = name;
+    if (!n.startsWith("/")) n = "/" + n;
+
+    // If the file we're trying to remove is currently open, close it first
+    if (_logFile) {
+        if (_currentLogName.equals(n)) {
+            _logFile.close();
+            _currentLogName = "";
+        }
+    }
+
+    // Attempt remove
+    if (LittleFS.exists(n)) {
+        bool ok = LittleFS.remove(n);
+        return ok;
+    }
+    return false;
 }

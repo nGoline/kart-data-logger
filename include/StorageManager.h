@@ -12,6 +12,8 @@ public:
     void logData(uint32_t timestamp, double lat, double lng, double speed, float batVolts);
     void logTelemetry(const TelemetryData &t);
     void flush();
+    // Safely remove a log file. If the file is currently open, it will close it first.
+    bool removeLogFile(const char* name);
 
 private:
     File _logFile;

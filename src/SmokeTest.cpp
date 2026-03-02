@@ -16,7 +16,7 @@ void smokeTask(void* param) {
     t.gForce = 0.0f;
 
     for (;;) {
-        t.lastUpdate = millis();
+        t.lastUpdate = millis() / 1000;
         t.speed += 0.5; if (t.speed > 120) t.speed = 0;
         t.gForce = 1.0f + 0.1f * sin((float)millis() / 1000.0f);
         if (telemetryQueue) xQueueSend(telemetryQueue, &t, 0);

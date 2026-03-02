@@ -43,3 +43,7 @@ void LogManager::task(void* param) {
         }
     }
 }
+
+bool LogManager::removeLog(const char* name) {
+    return _storage.removeLogFile(name);
+}

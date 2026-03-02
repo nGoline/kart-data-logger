@@ -1,4 +1,5 @@
 #include "WifiManager.h"
+#include "LogManager.h"
 
 WifiManager::WifiManager(const char* ssid, const char* pass) : _ssid(ssid), _pass(pass) {}
 
@@ -18,6 +19,15 @@ bool WifiManager::begin() {
     // HTTP server routes use LittleFS
     setupHttpRoutes();
     _httpServer.begin();
+
+    // Start a small HTTP handler task to service incoming requests
+    xTaskCreate([](void* arg){
+        WifiManager* self = (WifiManager*)arg;
+        for (;;) {
+            self->_httpServer.handleClient();
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }, "HTTP_Task", 4096, this, 1, NULL);
 
     // OTA init
     ArduinoOTA.setHostname("kart-data-logger");
@@ -62,8 +72,14 @@ void WifiManager::setupHttpRoutes() {
             while (file) {
                 String name = file.name();
                 size_t size = file.size();
+                // normalize name to start with '/'
+                if (!name.startsWith("/")) name = "/" + name;
                 if (name.startsWith("/telemetry_") && name.endsWith(".csv")) {
-                    html += "<li><a href=\"/logs" + name + "\">" + name + "</a> (" + String(size) + " bytes)</li>";
+                    // link to /logs/<path-with-leading-slash> so NotFound handler can strip '/logs' and open it directly
+                    html += "<li><a href=\"/logs" + name + "\">" + name + "</a> (" + String(size) + " bytes) ";
+                    // delete link
+                    html += "<a href=\"/logs/delete?f=" + name + "\" style=\"color:red;margin-left:8px\">Delete</a>";
+                    html += "</li>";
                 }
                 file = root.openNextFile();
             }
@@ -85,6 +101,40 @@ void WifiManager::setupHttpRoutes() {
             }
         }
         _httpServer.send(404, "text/plain", "Not found");
+    });
+
+    // Delete a log file safely: /logs/delete?f=/telemetry_xxx.csv
+    _httpServer.on("/logs/delete", HTTP_GET, [&]() {
+        String fname = _httpServer.arg("f");
+        if (!fname.startsWith("/")) fname = "/" + fname;
+
+        // Safety checks: only allow telemetry CSVs and no directory traversal
+        if (fname.indexOf("..") != -1 || !fname.startsWith("/telemetry_") || !fname.endsWith(".csv")) {
+            _httpServer.send(400, "text/plain", "Invalid file");
+            return;
+        }
+
+        // Try using the LogManager to safely remove the file (it will close active log if needed)
+        extern LogManager logManager;
+        bool ok = false;
+        if (LittleFS.exists(fname)) {
+            ok = logManager.removeLog(fname.c_str());
+        }
+
+        if (!ok) {
+            // Provide diagnostic info
+            String msg = "Failed to delete ";
+            msg += fname;
+            msg += "\n";
+            if (LittleFS.exists(fname)) msg += "File still exists\n";
+            else msg += "File removed or not present\n";
+            _httpServer.send(500, "text/plain", msg);
+            return;
+        }
+
+        // Redirect back to listing
+        _httpServer.sendHeader("Location", "/logs");
+        _httpServer.send(303, "text/plain", "");
     });
 }
 

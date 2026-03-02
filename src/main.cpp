@@ -81,7 +81,7 @@ void setup() {
     audio.tryQueueAudio("/silence.wav");
 
     // Start audio hardware (announce on Serial only)
-    if (audio.begin(21)) Serial.println("Audio: OK");
+    if (audio.begin(15)) Serial.println("Audio: OK");
 
     // Use WifiManager to handle WiFi, OTA, HTTP and telnet
     wifiMgr.setTelemetryQueue(telemetryQueue);
