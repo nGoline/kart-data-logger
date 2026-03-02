@@ -1,81 +1,124 @@
 #include <Arduino.h>
+#include <Wire.h>
+#include "TelemetryData.h" // A nossa nova struct
 #include "GpsManager.h"
-#include "BatteryManager.h"
+#include "ImuManager.h"
 #include "AudioManager.h"
-#include "VoiceParser.h"
-#include <WiFi.h>
+#include "LapManager.h"
+#include "Config.h"
 
-// A string do Mario salva na Flash
-const char testSound[] PROGMEM = "SuperMario:d=4,o=5,b=100:16e6,16e6,32p,8e6,16c6,8e6,8g6,8p,8g,8p,8c6,16p,8g,16p,8e,16p,8a,8b,16a#,8a,16g.,16e6,16g6,8a6,16f6,8g6,8e6,16c6,16d6,8b,16p";
+#define MAX_TELNET_CLIENTS 3
 
-// Configuração de Pinos
-const int8_t GPS_RX = 7; 
-const int8_t GPS_TX = 6;
-const uint8_t BAT_PIN = 1;
-const uint8_t I2S_BCLK = 2; // GPIO2 (D1)
-const uint8_t I2S_LRC = 3;  // GPIO3 (D2)
-const uint8_t I2S_DIN = 1;  // GPIO1 (D0)
+// Instância real da memória compartilhada
+volatile TelemetryData currentData;
 
-// Instanciação dos Gerenciadores
-GpsManager gps(GPS_RX, GPS_TX);
-BatteryManager battery(BAT_PIN);
-AudioManager audio(I2S_BCLK, I2S_LRC, I2S_DIN);
+GpsManager gps(44, 43);
+ImuManager imu;
+AudioManager audio(2, 3, 1);
+FinishLine line = {FINISH_LINE.lat, FINISH_LINE.lng, 15.0}; 
+LapManager lapTimer(gps, audio, line);
 
-// Handles das Tasks
-TaskHandle_t GpsTaskHandle = NULL;
-TaskHandle_t LoggerTaskHandle = NULL;
+WiFiServer telnetServer(23);
+WiFiClient clients[MAX_TELNET_CLIENTS];
 
-void GpsTask(void *pvParameters) {
-    for (;;) {
-        gps.update();
-        vTaskDelay(pdMS_TO_TICKS(1)); // Previne o travamento do Watchdog
+void setupWiFi() {
+    WiFi.begin("nGoline - Escritorio", "cuidadocomacabecadopimpolho");
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\n[WiFi] Conectado!");
+    Serial.print("[WiFi] IP: ");
+    Serial.println(WiFi.localIP());
+    telnetServer.begin();
+}
+
+// Função para centralizar os logs (Serial + Telnet)
+void logRemote(const char* format, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    // Envia para o USB
+    Serial.print(buffer);
+
+    // Se houver alguém conectado via Telnet, envia para o Wi-Fi
+    for (int i = 0; i < MAX_TELNET_CLIENTS; i++) {
+        if (clients[i] && clients[i].connected()) {
+            clients[i].print(buffer);
+        }
     }
 }
 
-void LoggerTask(void *pvParameters) {
+void TaskGPS(void *pvParameters) {
     for (;;) {
-    //     // Grava dados apenas se tivermos um sinal limpo (mínimo de 4 satélites)
-    //     if (gps.hasFix()) {
-    //         storage.logData(millis(), gps.getLat(), gps.getLng(), gps.getSpeed());
-    //     }
+        if (gps.update()) {
+            currentData.lat = gps.getLat();
+            currentData.lng = gps.getLng();
+            currentData.speed = gps.getSpeed();
+            currentData.sats = gps.getSatellites();
+            currentData.hasFix = gps.hasFix();
+            
+            lapTimer.update();
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
+void TaskIMU(void *pvParameters) {
+    uint32_t lastPrint = 0;
+    for (;;) {
+        // --- GERENCIADOR TELNET ---
+        if (telnetServer.hasClient()) {
+            bool added = false;
+            for (int i = 0; i < MAX_TELNET_CLIENTS; i++) {
+                if (!clients[i] || !clients[i].connected()) {
+                    if (clients[i]) clients[i].stop();
+                    clients[i] = telnetServer.available();
+                    clients[i].println("=== TELEMETRIA KART REMOTA CONECTADA ===");
+                    added = true;
+                    break;
+                }
+            }
+            if (!added) {
+                // Já tem alguém, recusa o novo
+                telnetServer.available().stop();
+            }
+        }
+
+        ImuData imuReading = imu.update();
+        currentData.gForce = imuReading.gForce;
+        currentData.gyroZ = imuReading.gyroZ;
         
-    //     // Atraso de 200ms bate exatamente com os 5Hz do GPS
-        vTaskDelay(pdMS_TO_TICKS(200)); 
+        // Log rápido para validação - Corrigido para %u ou %lu
+        if (currentData.hasFix) {
+            logRemote("G:%.2f | V:%.1f km/h | S:%u\n", 
+                          currentData.gForce, 
+                          currentData.speed, 
+                          (unsigned int)currentData.sats); // Cast explícito resolve o warning
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(20)); // 50Hz
     }
 }
 
 void setup() {
     Serial.begin(115200);
-    
-    // Desliga rádio para evitar jitter no I2S
-    WiFi.mode(WIFI_OFF); 
-    
+    Wire.begin(5, 6, 100000); 
     delay(2000);
 
-    if (LittleFS.begin(true)) {
-        // --- SE TIVER CÓDIGO DE LISTAR ARQUIVOS AQUI, FECHE TUDO ---
-        // File root = LittleFS.open("/"); ... root.close();
-    }
+    setupWiFi();
 
-    if (audio.begin(21)) {
-        Serial.println("Áudio iniciado com sucesso.");
-    }
+    gps.begin(); 
+    if(imu.begin()) Serial.println("IMU: OK");
+    if(audio.begin(21)) Serial.println("Audio: OK");
 
-    battery.begin();
-    
-    // if (!storage.begin()) {
-    //     Serial.println("Erro: Falha ao montar o LittleFS!");
-    // }
-    
-    gps.begin();
-
-    // Core 0: Dedicado exclusivamente à leitura serial do GPS
-    xTaskCreatePinnedToCore(GpsTask, "GpsTask", 4096, NULL, 2, &GpsTaskHandle, 0);
-    
-    // Core 1: Cuida da gravação no disco (que pode ter latência)
-    xTaskCreatePinnedToCore(LoggerTask, "LoggerTask", 4096, NULL, 1, &LoggerTaskHandle, 1);
+    xTaskCreatePinnedToCore(TaskGPS, "GPS_Task", 4096, NULL, 3, NULL, 0);
+    xTaskCreatePinnedToCore(TaskIMU, "IMU_Task", 4096, NULL, 2, NULL, 1);
 }
 
 void loop() {
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }
