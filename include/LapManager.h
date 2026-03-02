@@ -32,7 +32,7 @@ private:
     
     bool _insideGate = false;
     double _minDistInGate = 999.9;
-    const uint32_t MIN_LAP_TIME_MS = MIN_LAP_TIME_MS;
+    const uint32_t MIN_LAP_TIME_MS = 5000; // minimum 5s between laps to avoid false positives
 
     void completeLap(uint32_t now);
 };

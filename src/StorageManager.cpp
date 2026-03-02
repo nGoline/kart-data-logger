@@ -7,23 +7,18 @@ bool StorageManager::begin() {
     if (!LittleFS.begin(true)) { 
         return false;
     }
-    
-    // Abre em modo APPEND para não sobrescrever o arquivo ao reiniciar o ESP32
-    _logFile = LittleFS.open("/telemetry.csv", FILE_APPEND);
-    if (!_logFile) {
-        return false;
-    }
-
-    // Se o arquivo for novo (tamanho 0), escreve o cabeçalho do CSV
-    if (_logFile.size() == 0) {
-        _logFile.println("Timestamp,Latitude,Longitude,Speed_kmh,Battery_V");
-        _logFile.flush();
-    }
-    return true;
+    // Create a new log file named with the current millis() to avoid collisions
+    _currentLogStartMs = millis();
+    return openNewLogFile();
 }
 
 void StorageManager::logData(uint32_t timestamp, double lat, double lng, double speed, float batVolts) {
-    if (!_logFile) return;
+    if (!_logFile) {
+        // attempt to reopen
+        if (!openNewLogFile()) return;
+    }
+
+    rotateIfNeeded();
 
     _logFile.printf("%lu,%.6f,%.6f,%.2f,%.2f\n", timestamp, lat, lng, speed, batVolts);
 
@@ -33,9 +28,61 @@ void StorageManager::logData(uint32_t timestamp, double lat, double lng, double 
     }
 }
 
+void StorageManager::logTelemetry(const TelemetryData &t) {
+    if (!_logFile) {
+        if (!openNewLogFile()) return;
+    }
+
+    rotateIfNeeded();
+
+    // CSV: Timestamp,Latitude,Longitude,Speed_kmh,GForce,Satellites,HasFix
+    _logFile.printf("%lu,%.6f,%.6f,%.2f,%.3f,%u,%d\n",
+                    t.lastUpdate,
+                    t.lat,
+                    t.lng,
+                    t.speed,
+                    t.gForce,
+                    (unsigned int)t.sats,
+                    t.hasFix ? 1 : 0);
+
+    if (millis() - _lastFlushTime > FLUSH_INTERVAL_MS) {
+        flush();
+    }
+}
+
 void StorageManager::flush() {
     if (_logFile) {
         _logFile.flush();
         _lastFlushTime = millis();
+    }
+}
+
+bool StorageManager::openNewLogFile() {
+    // Close existing if open
+    if (_logFile) {
+        _logFile.close();
+    }
+
+    _currentLogName = "/telemetry_" + String(_currentLogStartMs) + ".csv";
+    _logFile = LittleFS.open(_currentLogName.c_str(), FILE_APPEND);
+    if (!_logFile) return false;
+
+    // If new file, write header
+    if (_logFile.size() == 0) {
+        _logFile.println("Timestamp,Latitude,Longitude,Speed_kmh,GForce,Satellites,HasFix");
+        _logFile.flush();
+    }
+
+    _lastFlushTime = millis();
+    return true;
+}
+
+void StorageManager::rotateIfNeeded() {
+    if (!_logFile) return;
+
+    if ((size_t)_logFile.size() >= MAX_LOG_FILE_SIZE) {
+        // Start a new file with new timestamp
+        _currentLogStartMs = millis();
+        openNewLogFile();
     }
 }

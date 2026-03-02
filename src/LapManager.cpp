@@ -14,14 +14,17 @@ void LapManager::update() {
     uint32_t now = millis();
 
     // Lógica de Detecção da Linha de Chegada
+    // Enter gate: start tracking the minimum distance while inside the gate
     if (dist < _line.radius && (now - _lastLapMillis > MIN_LAP_TIME_MS)) {
         _insideGate = true;
         if (dist < _minDistInGate) {
             _minDistInGate = dist; 
         }
-    } 
-    else if (_insideGate && dist > _minDistInGate) {
-        // Acabaste de cruzar o ponto mais próximo da meta!
+    }
+    // Exit gate: require distance to increase sufficiently beyond the min
+    // to avoid small GPS oscillations (hysteresis)
+    else if (_insideGate && dist > (_minDistInGate + 5.0) && (now - _lastLapMillis > MIN_LAP_TIME_MS)) {
+        // Crossed the far side of the gate -> lap complete
         completeLap(now);
     }
 }

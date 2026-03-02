@@ -1,4 +1,6 @@
 #include "GpsManager.h"
+#include "AudioManager.h"
+#include "LapManager.h"
 
 GpsManager::GpsManager(int8_t rxPin, int8_t txPin) 
     : _rxPin(rxPin), _txPin(txPin), _serialGps(1) {}
@@ -121,8 +123,91 @@ bool GpsManager::update() {
     return newData;
 }
 
+void GpsManager::startTask(QueueHandle_t telemetryQueue, LapManager* lapTimer, AudioManager* audio) {
+    struct Args { GpsManager* self; QueueHandle_t q; LapManager* lap; AudioManager* audio; };
+    Args* args = (Args*)pvPortMalloc(sizeof(Args));
+    args->self = this; args->q = telemetryQueue; args->lap = lapTimer; args->audio = audio;
+
+    auto taskFn = [](void* p) {
+        Args* a = (Args*)p;
+        GpsManager* self = a->self;
+        QueueHandle_t q = a->q;
+        LapManager* lap = a->lap;
+        AudioManager* audio = a->audio;
+        bool gpsWasFixed = false;
+        unsigned long lastWaitAnnounce = 0;
+
+        for (;;) {
+            if (self->update()) {
+                // publish to shared currentData
+                extern volatile TelemetryData currentData;
+                currentData.lat = self->getLat();
+                currentData.lng = self->getLng();
+                currentData.speed = self->getSpeed();
+                currentData.sats = self->getSatellites();
+                currentData.hasFix = self->hasFix();
+                currentData.lastUpdate = millis();
+
+                // copy to queue
+                if (q) {
+                    TelemetryData sample;
+                    memcpy(&sample, (const void*)&currentData, sizeof(sample));
+                    sample.lastUpdate = currentData.lastUpdate;
+                    xQueueSend(q, &sample, 0);
+                }
+
+                if (currentData.hasFix && !gpsWasFixed) {
+                    gpsWasFixed = true;
+                    if (audio) {
+                        audio->tryQueueAudio("/gps.wav");
+                        audio->tryQueueAudio("/ready.wav");
+                        audio->tryQueueAudio("/silence.wav");
+                        audio->tryQueueAudio("/system_ready.wav");
+                    }
+                }
+
+                if (lap) lap->update();
+            }
+
+            if (!gpsWasFixed) {
+                unsigned long now = millis();
+                if (now - lastWaitAnnounce >= 10000) {
+                    lastWaitAnnounce = now;
+                    if (audio){
+                        audio->tryQueueAudio("/wait.wav");
+                        audio->tryQueueAudio("/initializing.wav");
+                        audio->tryQueueAudio("/gps.wav");
+                        audio->tryQueueAudio("/silence.wav");
+                    }
+                }
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+    };
+
+    xTaskCreatePinnedToCore(taskFn, "GPS_Task", 4096, args, 3, NULL, 0);
+}
+
 double GpsManager::getLat() { return _gps.location.lat(); }
 double GpsManager::getLng() { return _gps.location.lng(); }
-double GpsManager::getSpeed() { return _gps.speed.kmph(); }
+double GpsManager::getSpeed() {
+    double s = _gps.speed.kmph();
+    // Suppress small noisy speeds when fix is poor or stationary
+    const double MIN_SPEED_KMPH = 1.0; // below this consider stopped
+    if (!_gps.location.isValid()) return 0.0;
+    if ((int)_gps.satellites.value() < 4) return 0.0;
+    if (s < MIN_SPEED_KMPH) return 0.0;
+    return s;
+}
 uint32_t GpsManager::getSatellites() { return _gps.satellites.value(); }
-bool GpsManager::hasFix() { return _gps.location.isValid() && _gps.satellites.value() >= 4; }
+bool GpsManager::hasFix() {
+    // Require valid location, minimum satellites and reasonable HDOP
+    const double MAX_HDOP = 3.0; // acceptable horizontal dilution
+    if (!_gps.location.isValid()) return false;
+    if ((int)_gps.satellites.value() < 4) return false;
+    if (_gps.hdop.isValid()) {
+        if (_gps.hdop.hdop() > MAX_HDOP) return false;
+    }
+    return true;
+}

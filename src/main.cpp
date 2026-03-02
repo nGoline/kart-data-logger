@@ -1,13 +1,20 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include "TelemetryData.h" // A nossa nova struct
+#include <string.h>
+#include <WiFi.h>
+#include <ArduinoOTA.h>
+#include <LittleFS.h>
+#include <WebServer.h>
+#include "TelemetryData.h"
 #include "GpsManager.h"
 #include "ImuManager.h"
 #include "AudioManager.h"
+#include "LogManager.h"
 #include "LapManager.h"
 #include "Config.h"
+#include "WifiManager.h"
 
-#define MAX_TELNET_CLIENTS 3
+// Telnet is handled inside WifiManager now
 
 // Instância real da memória compartilhada
 volatile TelemetryData currentData;
@@ -15,23 +22,19 @@ volatile TelemetryData currentData;
 GpsManager gps(44, 43);
 ImuManager imu;
 AudioManager audio(2, 3, 1);
-FinishLine line = {FINISH_LINE.lat, FINISH_LINE.lng, 15.0}; 
+FinishLine line = {FINISH_LINE.lat, FINISH_LINE.lng, 15.0};
 LapManager lapTimer(gps, audio, line);
+LogManager logManager;
 
-WiFiServer telnetServer(23);
-WiFiClient clients[MAX_TELNET_CLIENTS];
+// Simple HTTP server to list and download logs
+WebServer httpServer(80);
 
-void setupWiFi() {
-    WiFi.begin("nGoline - Escritorio", "cuidadocomacabecadopimpolho");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("\n[WiFi] Conectado!");
-    Serial.print("[WiFi] IP: ");
-    Serial.println(WiFi.localIP());
-    telnetServer.begin();
-}
+QueueHandle_t telemetryQueue = NULL;
+
+// Global WifiManager so logRemote() can broadcast to connected telnet clients
+WifiManager wifiMgr("nGoline - Escritorio", "cuidadocomacabecadopimpolho");
+
+// GPS state is handled inside GpsManager; no globals required here.
 
 // Função para centralizar os logs (Serial + Telnet)
 void logRemote(const char* format, ...) {
@@ -44,79 +47,78 @@ void logRemote(const char* format, ...) {
     // Envia para o USB
     Serial.print(buffer);
 
-    // Se houver alguém conectado via Telnet, envia para o Wi-Fi
-    for (int i = 0; i < MAX_TELNET_CLIENTS; i++) {
-        if (clients[i] && clients[i].connected()) {
-            clients[i].print(buffer);
-        }
-    }
+    // Broadcast to any connected telnet clients via WifiManager
+    wifiMgr.broadcast(buffer);
 }
 
-void TaskGPS(void *pvParameters) {
-    for (;;) {
-        if (gps.update()) {
-            currentData.lat = gps.getLat();
-            currentData.lng = gps.getLng();
-            currentData.speed = gps.getSpeed();
-            currentData.sats = gps.getSatellites();
-            currentData.hasFix = gps.hasFix();
-            
-            lapTimer.update();
-        }
-        vTaskDelay(pdMS_TO_TICKS(1));
-    }
-}
-
-void TaskIMU(void *pvParameters) {
-    uint32_t lastPrint = 0;
-    for (;;) {
-        // --- GERENCIADOR TELNET ---
-        if (telnetServer.hasClient()) {
-            bool added = false;
-            for (int i = 0; i < MAX_TELNET_CLIENTS; i++) {
-                if (!clients[i] || !clients[i].connected()) {
-                    if (clients[i]) clients[i].stop();
-                    clients[i] = telnetServer.available();
-                    clients[i].println("=== TELEMETRIA KART REMOTA CONECTADA ===");
-                    added = true;
-                    break;
-                }
-            }
-            if (!added) {
-                // Já tem alguém, recusa o novo
-                telnetServer.available().stop();
-            }
-        }
-
-        ImuData imuReading = imu.update();
-        currentData.gForce = imuReading.gForce;
-        currentData.gyroZ = imuReading.gyroZ;
-        
-        // Log rápido para validação - Corrigido para %u ou %lu
-        if (currentData.hasFix) {
-            logRemote("G:%.2f | V:%.1f km/h | S:%u\n", 
-                          currentData.gForce, 
-                          currentData.speed, 
-                          (unsigned int)currentData.sats); // Cast explícito resolve o warning
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(20)); // 50Hz
-    }
-}
+// GPS and IMU tasks are managed by their respective manager classes.
 
 void setup() {
     Serial.begin(115200);
-    Wire.begin(5, 6, 100000); 
     delay(2000);
+    Wire.begin(SDA, SCL, 100000);
 
-    setupWiFi();
+    // Play initializing hint immediately (non-blocking)
+    audio.tryQueueAudio("/wait.wav");
+    audio.tryQueueAudio("/initializing.wav");
+    audio.tryQueueAudio("/silence.wav");
 
-    gps.begin(); 
-    if(imu.begin()) Serial.println("IMU: OK");
-    if(audio.begin(21)) Serial.println("Audio: OK");
+    // Create telemetry queue before starting subsystems
+    telemetryQueue = xQueueCreate(64, sizeof(TelemetryData));
+    if (!telemetryQueue) {
+        Serial.println("[Main] Failed to create telemetry queue");
+    }
 
-    xTaskCreatePinnedToCore(TaskGPS, "GPS_Task", 4096, NULL, 3, NULL, 0);
-    xTaskCreatePinnedToCore(TaskIMU, "IMU_Task", 4096, NULL, 2, NULL, 1);
+    // Start persistent logger on Core 1
+    if (logManager.begin(telemetryQueue)) {
+        Serial.println("[LogManager] Started");
+        audio.tryQueueAudio("/file_system.wav");
+        audio.tryQueueAudio("/ready.wav");
+    } else {
+        audio.tryQueueAudio("/error.wav");
+        audio.tryQueueAudio("/file_system.wav");
+    }
+    audio.tryQueueAudio("/silence.wav");
+
+    // Start audio hardware (announce on Serial only)
+    if (audio.begin(21)) Serial.println("Audio: OK");
+
+    // Use WifiManager to handle WiFi, OTA, HTTP and telnet
+    wifiMgr.setTelemetryQueue(telemetryQueue);
+    if (!wifiMgr.begin()) {
+        Serial.println("[WiFi] Failed to connect");
+    }
+
+    // Start GPS (announce initialization)
+    gps.begin();
+
+    // Start GPS task via its manager
+    gps.startTask(telemetryQueue, &lapTimer, &audio);
+
+    // Start IMU and announce result
+    audio.tryQueueAudio("/initializing.wav");
+    audio.tryQueueAudio("/imu.wav");
+    audio.tryQueueAudio("/silence.wav");
+    if (imu.begin()) {
+        Serial.println("IMU: OK");
+        audio.tryQueueAudio("/imu.wav");
+        audio.tryQueueAudio("/ready.wav");
+    } else {
+        audio.tryQueueAudio("/error.wav");
+        audio.tryQueueAudio("/imu.wav");
+    }
+    audio.tryQueueAudio("/silence.wav");
+
+    // Now start IMU periodic task
+    imu.startTask();
+
+    // optionally start smoke test
+#ifdef SMOKE_TEST
+    extern void startSmokeTest();
+    startSmokeTest();
+#endif
+
+    audio.tryQueueAudio("/system_ready.wav");
 }
 
 void loop() {

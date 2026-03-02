@@ -3,6 +3,9 @@
 
 #include <Arduino.h>
 #include <TinyGPS++.h>
+#include <string.h>
+#include "TelemetryData.h"
+#include <string.h>
 
 class GpsManager {
 public:
@@ -10,6 +13,9 @@ public:
     
     void begin();
     bool update();
+
+    // starts the internal GPS task that publishes telemetry to queue
+    void startTask(QueueHandle_t telemetryQueue, class LapManager* lapTimer, class AudioManager* audio);
     
     double getLat();
     double getLng();

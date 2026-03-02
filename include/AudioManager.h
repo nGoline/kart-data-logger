@@ -11,6 +11,7 @@ public:
     AudioManager(int bclkPin, int lrcPin, int dinPin);
     bool begin(int volume = 15);
     void queueAudio(const char* filename);
+    bool tryQueueAudio(const char* filename); // non-blocking enqueue
     void setVolume(int volume);
     bool isPlaying();
 

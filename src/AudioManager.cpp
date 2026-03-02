@@ -69,6 +69,15 @@ void AudioManager::queueAudio(const char* filename) {
     }
 }
 
+bool AudioManager::tryQueueAudio(const char* filename) {
+    if (xSemaphoreTake(_mutex, 0) == pdTRUE) {
+        _playlist.push(String(filename));
+        xSemaphoreGive(_mutex);
+        return true;
+    }
+    return false;
+}
+
 void AudioManager::playNextInQueue() {
     String nextFile = _playlist.front();
     _playlist.pop();
