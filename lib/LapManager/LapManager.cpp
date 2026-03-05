@@ -49,7 +49,15 @@ void LapManager::completeLap(uint32_t now) {
         return;
     }
 
-    _lastLapTime = now - _lastLapMillis;
+    uint32_t lapMeasured = now - _lastLapMillis;
+
+    // Calculate delta against previous lap BEFORE updating _lastLapTime
+    if (_lastLapTime > 0) {
+        _prevLapTime = _lastLapTime;
+        _deltaLast = (int32_t)lapMeasured - (int32_t)_prevLapTime;
+    }
+
+    _lastLapTime = lapMeasured;
     _lastLapMillis = now;
     _insideGate = false;
     _minDistInGate = 999.9;

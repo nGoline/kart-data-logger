@@ -76,7 +76,15 @@ void telemetryTask(void *pvParameters) {
 }
 
 void setup() {
+#if ARDUINO_USB_CDC_ON_BOOT == 1
+    // If the board is configured to use USB CDC on boot, we need to wait for the USB connection to be established before we can use Serial.
+    delay(5000);
+#endif
+
     Serial.begin(115200);
+
+    unsigned long serialStart = millis();
+    while (!Serial && millis() - serialStart < 2000) { delay(10); }
 
     // --- INITIALIZE MUTEX FIRST ---
     hardwareBusMutex = xSemaphoreCreateMutex();
@@ -125,10 +133,6 @@ void setup() {
     audio.queueAudio("/startup.wav");    
     audio.queueAudio("/wait.wav");
     audio.queueAudio("/initializing.wav");
-    audio.queueAudio("/silence.wav");
-
-    audio.queueAudio("/file_system.wav");
-    audio.queueAudio("/ready.wav");
     audio.queueAudio("/silence.wav");
     #endif
 
@@ -180,8 +184,8 @@ void setup() {
     audio.queueAudio("/initializing.wav");
     audio.queueAudio("/gps.wav");
     audio.queueAudio("/silence.wav");
-    gps.begin();
     #endif
+    gps.begin();
 
     // 7. Create Telemetry Queue (Holds up to 10 messages)
     telemetryQueue = xQueueCreate(10, sizeof(TelemetryMsg));
@@ -274,10 +278,30 @@ void loop() {
         // 2. Check for Lap Completion
         if (lapTimer.processTelemetry(msg)) {
             uint32_t lt = lapTimer.getLastLapTime();
-            int mins = lt / 60000;
-            int secs = (lt % 60000) / 1000;
-            int mms = lt % 1000;
-            // VoiceParser::announceLapTime(audio, mins, secs, mms);
+            uint32_t bt = lapTimer.getBestLapTime();
+            uint32_t pt = lapTimer.getPreviousLapTime();
+            int minutes = lt / 60000;
+            int seconds = (lt % 60000) / 1000;
+            int millis = lt % 1000;
+            bool isBest = (lt == bt && bt != 0);
+
+            // --- ANNOUNCE LAP + DELTA ---
+            VoiceParser::announceLapTime(audio, minutes, seconds, millis, isBest);
+            
+            audio.queueAudio("/silence.wav");
+
+            if (pt > 0) { // Don't announce a delta on the first lap   
+                // Calculate Delta (Difference from previous lap)
+                // We use the absolute value for the number, then add the direction
+                int32_t delta = (int32_t)lt - (int32_t)pt;
+                int deltaMinutes = abs(delta / 60000);
+                int deltaSeconds = abs((delta % 60000) / 1000);
+                int deltaMillis = abs(delta % 1000);
+
+                if (deltaMinutes > 0 || deltaSeconds > 0 || deltaMillis > 0) {
+                    VoiceParser::announceDeltaTime(audio, deltaMinutes, deltaSeconds, deltaMillis, delta <= 0);
+                }
+            }
         }
 
         // Debug Log

@@ -51,22 +51,40 @@ namespace VoiceParser {
         audio.tryQueueAudio(("/" + String(num) + ".wav").c_str());
     }
 
-    void announceLapTime(AudioManager& audio, int minutes, int seconds, int millis) {
+    void announceLapTime(AudioManager& audio, int minutes, int seconds, int millis, bool isBest) {
+        log_i("Voice: Announcing %s", isBest ? "BEST LAP!" : "LAP TIME");
+        
+        if (isBest) {
+            audio.tryQueueAudio("/best_lap.wav");
+            audio.tryQueueAudio("/silence.wav");
+        } else {
+            audio.tryQueueAudio("/lap_time.wav");
+            audio.tryQueueAudio("/silence.wav");
+        }
+
+        announceTime(audio, minutes, seconds, millis);
+    }
+
+    void announceDeltaTime(AudioManager& audio, int deltaMinutes, int deltaSeconds, int deltaMillis, bool isFaster) {
+        log_i("Voice: Announcing DELTA %02d:%02d.%03d %s", deltaMinutes, deltaSeconds, deltaMillis, isFaster ? "FASTER" : "SLOWER");
+
+        announceTime(audio, deltaMinutes, deltaSeconds, deltaMillis);
+        audio.queueAudio("/silence.wav");
+        if (isFaster) {
+            audio.tryQueueAudio("/down.wav"); // Faster
+        } else {
+            audio.tryQueueAudio("/up.wav"); // Slower
+        }
+    }
+
+    void announceTime(AudioManager& audio, int minutes, int seconds, int millis) {
         log_i("Voice: Announcing %02d:%02d.%03d", minutes, seconds, millis);
         
-        audio.tryQueueAudio("/lap_time.wav");
-
         if (minutes > 0) {
             queueNumber(audio, minutes);
-            audio.tryQueueAudio("/minutos.wav"); // Assuming you have this file
-            if (seconds > 0) audio.tryQueueAudio("/e.wav");
         }
 
-        if (seconds > 0 || minutes == 0) {
-            queueNumber(audio, seconds);
-        }
-
-        audio.tryQueueAudio("/ponto.wav");
+        queueNumber(audio, seconds);
 
         // Handle leading zeros for milliseconds (e.g., .005 vs .050 vs .500)
         if (millis < 10) {

@@ -19,13 +19,16 @@ public:
     bool processTelemetry(const TelemetryMsg& data);
 
     uint32_t getLastLapTime() const { return _lastLapTime; }
+    uint32_t getPreviousLapTime() const { return _prevLapTime; }
     uint32_t getBestLapTime() const { return _bestLapTime; }
 
 private:
     FinishLine _line;
     uint32_t _lastLapMillis = 0;
     uint32_t _lastLapTime = 0;
+    uint32_t _prevLapTime = 0;
     uint32_t _bestLapTime = 0;
+    int32_t _deltaLast = 0;
     
     bool _insideGate = false;
     double _minDistInGate = 999.9;

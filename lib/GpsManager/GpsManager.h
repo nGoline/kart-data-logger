@@ -5,6 +5,13 @@
 #include <TinyGPS++.h>
 #include "EspNowProtocol.h"
 
+struct UBXConfig {
+    uint8_t dynModel;     // 4 = Automotive, 3 = Pedestrian, etc.
+    uint16_t measRate;    // 200 = 5Hz, 1000 = 1Hz
+    uint32_t baudRate;    // 115200, 9600, etc.
+    uint8_t perfMode;     // 0 = Max Performance, 1 = Power Save, 4 = Eco.
+};
+
 class GpsManager {
 public:
     GpsManager(int8_t rxPin, int8_t txPin);
@@ -26,9 +33,12 @@ private:
     bool _isInitialized = false;
 
     // Internal U-Blox helpers
-    void sendUBX(const uint8_t *msg, size_t len);
+    void sendUBXWithChecksum(uint8_t msgClass, uint8_t msgID, uint8_t* payload, uint16_t len);
     void configureUblox();
-    
+    UBXConfig readCurrentConfig();
+    bool pollUBX(uint8_t msgClass, uint8_t msgID, uint8_t* payload, uint8_t payloadLen);
+    void checkFirmware();
+
     // Filtering & Dead Reckoning
     double _filteredLat = 0.0, _filteredLng = 0.0;
     unsigned long _lastGpsMillis = 0;
