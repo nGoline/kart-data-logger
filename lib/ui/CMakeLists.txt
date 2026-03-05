@@ -20,6 +20,9 @@ SET(SOURCES screens/ui_Screen1.c
     images/ui_img_images_cl_red_png.c
     images/ui_img_images_cl_yellow_png.c
     images/ui_img_images_cl_green_png.c
+    images/ui_img_images_cr_red_png.c
+    images/ui_img_images_cr_yellow_png.c
+    images/ui_img_images_cr_green_png.c
     fonts/ui_font_DS36.c
     fonts/ui_font_DS18.c)
 

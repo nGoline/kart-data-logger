@@ -35,6 +35,10 @@ extern lv_obj_t *ui_centerLeftRed;
 extern lv_obj_t *ui_centerLeftYellow;
 extern lv_obj_t *ui_centerLeftGreen;
 extern lv_obj_t *ui_LabelGpsCount;
+extern lv_obj_t *ui_centerRightRed;
+extern lv_obj_t *ui_centerRightYellow;
+extern lv_obj_t *ui_centerRightGreen;
+extern lv_obj_t *ui_LabelBattery;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

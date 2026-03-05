@@ -5,7 +5,7 @@
 
 #include "../ui.h"
 
-lv_obj_t *ui_Screen1 = NULL;lv_obj_t *ui_Image_bg = NULL;lv_obj_t *ui_Label_speed = NULL;lv_obj_t *ui_speed1 = NULL;lv_obj_t *ui_speed2 = NULL;lv_obj_t *ui_speed3 = NULL;lv_obj_t *ui_speed4 = NULL;lv_obj_t *ui_speed5 = NULL;lv_obj_t *ui_speed6 = NULL;lv_obj_t *ui_speed7 = NULL;lv_obj_t *ui_speed8 = NULL;lv_obj_t *ui_speed9 = NULL;lv_obj_t *ui_speed10 = NULL;lv_obj_t *ui_Image_needle = NULL;lv_obj_t *ui_centerRed = NULL;lv_obj_t *ui_centerYellow = NULL;lv_obj_t *ui_centerGreen = NULL;lv_obj_t *ui_LabesEspNow = NULL;lv_obj_t *ui_centerLeftRed = NULL;lv_obj_t *ui_centerLeftYellow = NULL;lv_obj_t *ui_centerLeftGreen = NULL;lv_obj_t *ui_LabelGpsCount = NULL;
+lv_obj_t *ui_Screen1 = NULL;lv_obj_t *ui_Image_bg = NULL;lv_obj_t *ui_Label_speed = NULL;lv_obj_t *ui_speed1 = NULL;lv_obj_t *ui_speed2 = NULL;lv_obj_t *ui_speed3 = NULL;lv_obj_t *ui_speed4 = NULL;lv_obj_t *ui_speed5 = NULL;lv_obj_t *ui_speed6 = NULL;lv_obj_t *ui_speed7 = NULL;lv_obj_t *ui_speed8 = NULL;lv_obj_t *ui_speed9 = NULL;lv_obj_t *ui_speed10 = NULL;lv_obj_t *ui_Image_needle = NULL;lv_obj_t *ui_centerRed = NULL;lv_obj_t *ui_centerYellow = NULL;lv_obj_t *ui_centerGreen = NULL;lv_obj_t *ui_LabesEspNow = NULL;lv_obj_t *ui_centerLeftRed = NULL;lv_obj_t *ui_centerLeftYellow = NULL;lv_obj_t *ui_centerLeftGreen = NULL;lv_obj_t *ui_LabelGpsCount = NULL;lv_obj_t *ui_centerRightRed = NULL;lv_obj_t *ui_centerRightYellow = NULL;lv_obj_t *ui_centerRightGreen = NULL;lv_obj_t *ui_LabelBattery = NULL;
 // event funtions
 
 // build funtions
@@ -229,6 +229,47 @@ lv_obj_set_style_text_opa(ui_LabelGpsCount, 255, LV_PART_MAIN| LV_STATE_DEFAULT)
 lv_obj_set_style_text_align(ui_LabelGpsCount, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_LabelGpsCount, &ui_font_DS18, LV_PART_MAIN| LV_STATE_DEFAULT);
 
+ui_centerRightRed = lv_image_create(ui_Screen1);
+lv_image_set_src(ui_centerRightRed, &ui_img_images_cr_red_png);
+lv_obj_set_width( ui_centerRightRed, LV_SIZE_CONTENT);  /// 85
+lv_obj_set_height( ui_centerRightRed, LV_SIZE_CONTENT);   /// 54
+lv_obj_set_x( ui_centerRightRed, 90 );
+lv_obj_set_y( ui_centerRightRed, -119 );
+lv_obj_set_align( ui_centerRightRed, LV_ALIGN_CENTER );
+lv_obj_add_flag( ui_centerRightRed, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE );   /// Flags
+lv_obj_remove_flag( ui_centerRightRed, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+
+ui_centerRightYellow = lv_image_create(ui_Screen1);
+lv_image_set_src(ui_centerRightYellow, &ui_img_images_cr_yellow_png);
+lv_obj_set_width( ui_centerRightYellow, LV_SIZE_CONTENT);  /// 85
+lv_obj_set_height( ui_centerRightYellow, LV_SIZE_CONTENT);   /// 54
+lv_obj_set_x( ui_centerRightYellow, 90 );
+lv_obj_set_y( ui_centerRightYellow, -119 );
+lv_obj_set_align( ui_centerRightYellow, LV_ALIGN_CENTER );
+lv_obj_add_flag( ui_centerRightYellow, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE );   /// Flags
+lv_obj_remove_flag( ui_centerRightYellow, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+
+ui_centerRightGreen = lv_image_create(ui_Screen1);
+lv_image_set_src(ui_centerRightGreen, &ui_img_images_cr_green_png);
+lv_obj_set_width( ui_centerRightGreen, LV_SIZE_CONTENT);  /// 85
+lv_obj_set_height( ui_centerRightGreen, LV_SIZE_CONTENT);   /// 54
+lv_obj_set_x( ui_centerRightGreen, 90 );
+lv_obj_set_y( ui_centerRightGreen, -119 );
+lv_obj_set_align( ui_centerRightGreen, LV_ALIGN_CENTER );
+lv_obj_add_flag( ui_centerRightGreen, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE );   /// Flags
+lv_obj_remove_flag( ui_centerRightGreen, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+
+ui_LabelBattery = lv_label_create(ui_Screen1);
+lv_obj_set_width( ui_LabelBattery, 30);
+lv_obj_set_height( ui_LabelBattery, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_LabelBattery, 303 );
+lv_obj_set_y( ui_LabelBattery, 41 );
+lv_label_set_text(ui_LabelBattery,"--");
+lv_obj_set_style_text_color(ui_LabelBattery, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_LabelBattery, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_align(ui_LabelBattery, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_LabelBattery, &ui_font_DS18, LV_PART_MAIN| LV_STATE_DEFAULT);
+
 }
 
 void ui_Screen1_screen_destroy(void)
@@ -258,5 +299,9 @@ ui_centerLeftRed= NULL;
 ui_centerLeftYellow= NULL;
 ui_centerLeftGreen= NULL;
 ui_LabelGpsCount= NULL;
+ui_centerRightRed= NULL;
+ui_centerRightYellow= NULL;
+ui_centerRightGreen= NULL;
+ui_LabelBattery= NULL;
 
 }

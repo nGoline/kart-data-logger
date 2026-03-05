@@ -63,6 +63,7 @@ void telemetryTask(void *pvParameters) {
         msg.sats = (uint8_t)gps.getSatellites();
         msg.hasFix = gps.hasFix() ? 1 : 0;
         msg.timestamp = gps.getEpochMs();
+        msg.helmetBattery = (uint8_t)battery.getPercentage();
 
         // 3. Send to Queue (Don't block if full, just drop the oldest)
         if (xQueueSend(telemetryQueue, &msg, 0) != pdPASS) {
@@ -120,6 +121,8 @@ void setup() {
     // Start the audio engine on Core 0
     audio.begin(LittleFS, 15); 
     
+    #if defined(HAS_STARTUP_AUDIO_CUES)
+    audio.queueAudio("/startup.wav");    
     audio.queueAudio("/wait.wav");
     audio.queueAudio("/initializing.wav");
     audio.queueAudio("/silence.wav");
@@ -127,24 +130,30 @@ void setup() {
     audio.queueAudio("/file_system.wav");
     audio.queueAudio("/ready.wav");
     audio.queueAudio("/silence.wav");
+    #endif
 
-    if (imuStarted) {
-        audio.queueAudio("/imu.wav");
-        audio.queueAudio("/ready.wav");
-        audio.queueAudio("/silence.wav");
-    } else {
+    if (!imuStarted) {
+        #if defined(HAS_STARTUP_AUDIO_CUES)
         audio.queueAudio("/error.wav");
         audio.queueAudio("/imu.wav");
         audio.queueAudio("/silence.wav");
+        #endif
 
         while(1); // Halt if IMU is dead
     }
+
+    #if defined(HAS_STARTUP_AUDIO_CUES)
+    audio.queueAudio("/imu.wav");
+    audio.queueAudio("/ready.wav");
+    audio.queueAudio("/silence.wav");
+    #endif
 
     // 4. Battery Check
     battery.begin();
     int battLevel = battery.getPercentage();
     log_i("Battery: %d%%", battLevel);
     
+    #if defined(HAS_STARTUP_AUDIO_CUES)
     audio.queueAudio("/battery_level.wav");
     VoiceParser::queueNumber(audio, battLevel); // Uncomment if VoiceParser is ready
     audio.queueAudio("/silence.wav");
@@ -153,21 +162,26 @@ void setup() {
     audio.queueAudio("/initializing.wav");
     audio.queueAudio("/radio.wav");
     audio.queueAudio("/silence.wav");
+    #endif
 
     if (EspNowManager::begin()) {
         log_i("Radio: ESP-NOW Broadcast Active.");
 
+        #if defined(HAS_STARTUP_AUDIO_CUES)
         audio.queueAudio("/radio.wav");
         audio.queueAudio("/ready.wav");
         audio.queueAudio("/silence.wav");
+        #endif
     }
 
 #ifndef SMOKE_TEST
     // 6. GPS
+    #if defined(HAS_STARTUP_AUDIO_CUES)
     audio.queueAudio("/initializing.wav");
     audio.queueAudio("/gps.wav");
     audio.queueAudio("/silence.wav");
     gps.begin();
+    #endif
 
     // 7. Create Telemetry Queue (Holds up to 10 messages)
     telemetryQueue = xQueueCreate(10, sizeof(TelemetryMsg));
@@ -224,21 +238,24 @@ void loop() {
                 isSystemReady = true;
                 log_i("GPS Lock Acquired! (%d Sats). System Ready.", msg.sats);
                 
+                #if defined(HAS_STARTUP_AUDIO_CUES)
                 audio.queueAudio("/gps.wav");
                 audio.queueAudio("/ready.wav");
                 audio.queueAudio("/silence.wav");
                 audio.queueAudio("/system_ready.wav");
-                
+                #endif
             } else {
                 // STILL SEARCHING: Announce satellites if the count changed 
                 // AND at least 30 seconds have passed since the last announcement.
                 if ((millis() - lastAnnounceTime > 30000)) { //msg.sats != lastSats && 
                     log_i("Searching... Satellites: %d", msg.sats);
                     
+                    #if defined(HAS_STARTUP_AUDIO_CUES)
                     audio.queueAudio("/wait.wav");
                     VoiceParser::queueNumber(audio, msg.sats);
                     audio.queueAudio("/gps.wav");
                     audio.queueAudio("/silence.wav");
+                    #endif
                     
                     lastSats = msg.sats;
                     lastAnnounceTime = millis();

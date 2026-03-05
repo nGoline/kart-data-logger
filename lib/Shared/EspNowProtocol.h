@@ -23,7 +23,8 @@ struct TelemetryMsg {
     double lng;
     uint8_t sats;
     uint8_t hasFix;
-    uint64_t timestamp;   // millis() from the Logger
+    uint64_t timestamp;
+    uint8_t helmetBattery;
 };
 
 #endif

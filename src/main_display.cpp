@@ -31,6 +31,7 @@ const float lerpFactor = 0.20f;
 uint32_t lastMessageCount = 0;
 uint32_t pps = 0;
 uint32_t lastPPSUpdate = 0;
+uint8_t helmetBatteryCurrentLevel = 255;
 
 void syncUI() {
     // 1. Get data from Radio
@@ -50,62 +51,106 @@ void syncUI() {
         if (LogManager::logQueue != NULL) {
             xQueueSend(LogManager::logQueue, &EspNowManager::lastTelemetry, 0);
         }
-    }
 
-    // 3. Smooth the needle movement (Lerp)
-    if (abs(targetSpeed - displaySpeed) > 0.05) {
-        displaySpeed += (targetSpeed - displaySpeed) * lerpFactor;
-    } else {
-        displaySpeed = targetSpeed;
-    }
-        
-    // 4. Update Needle (0.1 degree units)
-    float angle_decimal = (displaySpeed - 0) * (313 - (-723)) / (100 - 0) + (-723);
-    lv_img_set_angle(ui_Image_needle, (int32_t)angle_decimal);
-
-    // 5. Update Speed Bars
-    int num_barras_vivas = map((int)displaySpeed, 0, 100, 0, 10);
-    for (int i = 0; i < 10; i++) {
-        if (i < num_barras_vivas) lv_obj_clear_flag(barras_speed[i], LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(barras_speed[i], LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // 6. Update Digital Label
-    char buf[12];
-    snprintf(buf, sizeof(buf), "%.1f", displaySpeed);
-    lv_label_set_text(ui_Label_speed, buf);
-
-    // ==========================================
-    // 7. Update GPS Satellite Indicator
-    // ==========================================
-    uint8_t sats = EspNowManager::lastTelemetry.sats;
-    static uint8_t lastSats = 255; // Use 255 so it guarantees an update on the very first loop
-
-    if (sats != lastSats) {
-        lastSats = sats;
-        // First, hide all colors to clear the previous state
-        lv_obj_add_flag(ui_centerLeftRed, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui_centerLeftYellow, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui_centerLeftGreen, LV_OBJ_FLAG_HIDDEN);
-
-        if (sats == 0) {
-            // No satellites at all
-            lv_label_set_text(ui_LabelGpsCount, "--");
+        // 3. Smooth the needle movement (Lerp)
+        if (abs(targetSpeed - displaySpeed) > 0.05) {
+            displaySpeed += (targetSpeed - displaySpeed) * lerpFactor;
         } else {
-            // Update the text label
-            char satBuf[8];
-            snprintf(satBuf, sizeof(satBuf), "%d", sats);
-            lv_label_set_text(ui_LabelGpsCount, satBuf);
+            displaySpeed = targetSpeed;
+        }
+            
+        // 4. Update Needle (0.1 degree units)
+        float angle_decimal = (displaySpeed - 0) * (313 - (-723)) / (100 - 0) + (-723);
+        lv_img_set_angle(ui_Image_needle, (int32_t)angle_decimal);
 
-            // Turn on the appropriate color bar
-            if (sats >= 7) {
-                lv_obj_clear_flag(ui_centerLeftGreen, LV_OBJ_FLAG_HIDDEN);
-            } else if (sats >= 4) {
-                lv_obj_clear_flag(ui_centerLeftYellow, LV_OBJ_FLAG_HIDDEN);
+        // 5. Update Speed Bars
+        int num_barras_vivas = map((int)displaySpeed, 0, 100, 0, 10);
+        for (int i = 0; i < 10; i++) {
+            if (i < num_barras_vivas) lv_obj_clear_flag(barras_speed[i], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(barras_speed[i], LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // 6. Update Digital Label
+        char buf[12];
+        snprintf(buf, sizeof(buf), "%.1f", displaySpeed);
+        lv_label_set_text(ui_Label_speed, buf);
+
+        // ==========================================
+        // 7. Update GPS Satellite Indicator
+        // ==========================================
+        uint8_t sats = EspNowManager::lastTelemetry.sats;
+        static uint8_t lastSats = 255; // Use 255 so it guarantees an update on the very first loop
+
+        if (sats != lastSats) {
+            lastSats = sats;
+            // First, hide all colors to clear the previous state
+            lv_obj_add_flag(ui_centerLeftRed, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_centerLeftYellow, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_centerLeftGreen, LV_OBJ_FLAG_HIDDEN);
+
+            if (sats == 0) {
+                // No satellites at all
+                lv_label_set_text(ui_LabelGpsCount, "--");
             } else {
-                lv_obj_clear_flag(ui_centerLeftRed, LV_OBJ_FLAG_HIDDEN);
+                // Update the text label
+                char satBuf[8];
+                snprintf(satBuf, sizeof(satBuf), "%d", sats);
+                lv_label_set_text(ui_LabelGpsCount, satBuf);
+
+                // Turn on the appropriate color bar
+                if (sats >= 7) {
+                    lv_obj_clear_flag(ui_centerLeftGreen, LV_OBJ_FLAG_HIDDEN);
+                } else if (sats >= 4) {
+                    lv_obj_clear_flag(ui_centerLeftYellow, LV_OBJ_FLAG_HIDDEN);
+                } else {
+                    lv_obj_clear_flag(ui_centerLeftRed, LV_OBJ_FLAG_HIDDEN);
+                }
             }
         }
+
+        // --- HELMET BATTERY UPDATE ---
+        static uint8_t lastBatteryLevel = 255; // Initialize with impossible value
+        helmetBatteryCurrentLevel = EspNowManager::lastTelemetry.helmetBattery;
+
+        if (helmetBatteryCurrentLevel != lastBatteryLevel) {
+            lastBatteryLevel = helmetBatteryCurrentLevel;
+
+            // 1. Update the numeric label
+            lv_label_set_text_fmt(ui_LabelBattery, "%d", helmetBatteryCurrentLevel);
+
+            // 2. Handle the "Traffic Light" Visibility
+            // Hide everything first, then reveal the correct one
+            lv_obj_add_flag(ui_centerRightRed, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_centerRightYellow, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_centerRightGreen, LV_OBJ_FLAG_HIDDEN);
+
+            if (helmetBatteryCurrentLevel > 60) {
+                lv_obj_clear_flag(ui_centerRightGreen, LV_OBJ_FLAG_HIDDEN);
+            } 
+            else if (helmetBatteryCurrentLevel > 20) {
+                lv_obj_clear_flag(ui_centerRightYellow, LV_OBJ_FLAG_HIDDEN);
+            } 
+            else {
+                lv_obj_clear_flag(ui_centerRightRed, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
+
+    // 2. Dynamic "Danger Zone" Blinking (Runs every loop if level <= 10)
+    if (helmetBatteryCurrentLevel <= 10) {
+        // Blink every 500ms using the ESP32 internal clock
+        bool show = (millis() / 500) % 2; 
+        
+        if (show) {
+            lv_obj_clear_flag(ui_centerRightRed, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_opa(ui_LabelBattery, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_add_flag(ui_centerRightRed, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_opa(ui_LabelBattery, LV_OPA_0, 0); // Blink the text too
+        }
+    } else {
+        // Ensure text is visible if we are above the danger zone
+        lv_obj_set_style_text_opa(ui_LabelBattery, LV_OPA_COVER, 0);
     }
 }
 

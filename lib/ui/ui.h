@@ -42,6 +42,9 @@ LV_IMG_DECLARE( ui_img_images_center_green_png);   // assets/Images/center_green
 LV_IMG_DECLARE( ui_img_images_cl_red_png);   // assets/Images/cl_red.png
 LV_IMG_DECLARE( ui_img_images_cl_yellow_png);   // assets/Images/cl_yellow.png
 LV_IMG_DECLARE( ui_img_images_cl_green_png);   // assets/Images/cl_green.png
+LV_IMG_DECLARE( ui_img_images_cr_red_png);   // assets/Images/cr_red.png
+LV_IMG_DECLARE( ui_img_images_cr_yellow_png);   // assets/Images/cr_yellow.png
+LV_IMG_DECLARE( ui_img_images_cr_green_png);   // assets/Images/cr_green.png
 
 // FONTS
 LV_FONT_DECLARE( ui_font_DS36);
