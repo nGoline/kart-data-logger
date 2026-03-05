@@ -1,10 +1,12 @@
 #include "AudioManager.h"
 
+// Bring in the global Mutex from main_logger.cpp
+extern SemaphoreHandle_t hardwareBusMutex;
+
 // Global semaphore for EOF signals
 SemaphoreHandle_t audioNextSem;
 
 // These callbacks must be in the global namespace for the Audio library to find them
-void audio_eof_mp3(const char *info) { if(audioNextSem) xSemaphoreGive(audioNextSem); }
 void audio_eof_wav(const char *info) { if(audioNextSem) xSemaphoreGive(audioNextSem); }
 
 AudioManager::AudioManager(int bclkPin, int lrcPin, int dinPin) 
@@ -37,7 +39,13 @@ void AudioManager::audioTask(void* parameter) {
     AudioManager* self = (AudioManager*)parameter;
     
     for (;;) {
-        self->_audio.loop();
+        // 1. SAFE AUDIO LOOP
+        // Only run the audio DMA chunker if the IMU isn't currently using the bus.
+        // We use a short timeout (10ms) so if the IMU is reading, the audio task yields.
+        if (xSemaphoreTake(hardwareBusMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            self->_audio.loop();
+            xSemaphoreGive(hardwareBusMutex);
+        }
 
         if (!self->_audio.isRunning()) {
             if (xSemaphoreTake(self->_mutex, 0) == pdTRUE) {
@@ -45,6 +53,8 @@ void AudioManager::audioTask(void* parameter) {
                     // Small gap between files for clarity
                     vTaskDelay(pdMS_TO_TICKS(100));
                     self->playNextInQueue();
+                } else {
+                    self->_audio.stopSong(); // RELEASE THE BUS
                 }
                 xSemaphoreGive(self->_mutex);
             }
@@ -66,6 +76,7 @@ bool AudioManager::tryQueueAudio(const char* filename) {
     if (xSemaphoreTake(_mutex, 0) == pdTRUE) {
         _playlist.push(String(filename));
         xSemaphoreGive(_mutex);
+        log_d("Audio: Queued %s", filename);
         return true;
     }
     return false;
@@ -75,11 +86,16 @@ void AudioManager::playNextInQueue() {
     String nextFile = _playlist.front();
     _playlist.pop();
 
-    _audio.stopSong(); 
-    log_i("Audio: Playing %s", nextFile.c_str());
-    
-    // Use the stored Filesystem reference
-    _audio.connecttoFS(*_fs, nextFile.c_str());
+    // 2. SAFE FILE LOADING (This is what was crashing your IMU!)
+    // We lock the bus until the heavy LittleFS read is completely finished.
+    if (xSemaphoreTake(hardwareBusMutex, portMAX_DELAY) == pdTRUE) {
+        _audio.stopSong(); 
+        log_i("Audio: Playing %s", nextFile.c_str());
+        
+        _audio.connecttoFS(*_fs, nextFile.c_str());
+        
+        xSemaphoreGive(hardwareBusMutex); // Bus is safe again!
+    }
 }
 
 bool AudioManager::isPlaying() {

@@ -36,9 +36,16 @@ LV_IMG_DECLARE( ui_img_1963060972);   // assets/Images/Anim/speed-08.png
 LV_IMG_DECLARE( ui_img_1963061997);   // assets/Images/Anim/speed-09.png
 LV_IMG_DECLARE( ui_img_1524054327);   // assets/Images/Anim/speed-10.png
 LV_IMG_DECLARE( ui_img_images_needle_png);   // assets/Images/needle.png
+LV_IMG_DECLARE( ui_img_images_center_red_png);   // assets/Images/center_red.png
+LV_IMG_DECLARE( ui_img_images_center_yellow_png);   // assets/Images/center_yellow.png
+LV_IMG_DECLARE( ui_img_images_center_green_png);   // assets/Images/center_green.png
+LV_IMG_DECLARE( ui_img_images_cl_red_png);   // assets/Images/cl_red.png
+LV_IMG_DECLARE( ui_img_images_cl_yellow_png);   // assets/Images/cl_yellow.png
+LV_IMG_DECLARE( ui_img_images_cl_green_png);   // assets/Images/cl_green.png
 
 // FONTS
 LV_FONT_DECLARE( ui_font_DS36);
+LV_FONT_DECLARE( ui_font_DS18);
 
 // UI INIT
 void ui_init(void);

@@ -14,6 +14,13 @@ SET(SOURCES screens/ui_Screen1.c
     images/ui_img_1963061997.c
     images/ui_img_1524054327.c
     images/ui_img_images_needle_png.c
-    fonts/ui_font_DS36.c)
+    images/ui_img_images_center_red_png.c
+    images/ui_img_images_center_yellow_png.c
+    images/ui_img_images_center_green_png.c
+    images/ui_img_images_cl_red_png.c
+    images/ui_img_images_cl_yellow_png.c
+    images/ui_img_images_cl_green_png.c
+    fonts/ui_font_DS36.c
+    fonts/ui_font_DS18.c)
 
 add_library(ui ${SOURCES})

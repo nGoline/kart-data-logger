@@ -18,12 +18,12 @@ public:
     ImuManager();
     bool begin(int sda = -1, int scl = -1); // Support custom I2C pins
     ImuData update();
-    void startTask(QueueHandle_t telemetryQueue);
 
 private:
     MPU6050 _mpu;
     float _gFiltered = 1.0f;
-    const float _gAlpha = 0.12f; 
+    const float _gAlpha = 0.12f;
+    int _sda_pin, _scl_pin;
 };
 
 #endif

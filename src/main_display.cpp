@@ -36,6 +36,13 @@ void syncUI() {
     // 1. Get data from Radio
     if (EspNowManager::newDataAvailable) {
         EspNowManager::newDataAvailable = false;
+
+        static uint64_t lastProcessedTimestamp = 0;
+        if (EspNowManager::lastTelemetry.timestamp == lastProcessedTimestamp) {
+            return; // This is a Wi-Fi echo/duplicate. Ignore it!
+        }
+        lastProcessedTimestamp = EspNowManager::lastTelemetry.timestamp;
+
         targetSpeed = EspNowManager::lastTelemetry.speedKmph;
         lastMessageCount++;
 
@@ -67,6 +74,39 @@ void syncUI() {
     char buf[12];
     snprintf(buf, sizeof(buf), "%.1f", displaySpeed);
     lv_label_set_text(ui_Label_speed, buf);
+
+    // ==========================================
+    // 7. Update GPS Satellite Indicator
+    // ==========================================
+    uint8_t sats = EspNowManager::lastTelemetry.sats;
+    static uint8_t lastSats = 255; // Use 255 so it guarantees an update on the very first loop
+
+    if (sats != lastSats) {
+        lastSats = sats;
+        // First, hide all colors to clear the previous state
+        lv_obj_add_flag(ui_centerLeftRed, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_centerLeftYellow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_centerLeftGreen, LV_OBJ_FLAG_HIDDEN);
+
+        if (sats == 0) {
+            // No satellites at all
+            lv_label_set_text(ui_LabelGpsCount, "--");
+        } else {
+            // Update the text label
+            char satBuf[8];
+            snprintf(satBuf, sizeof(satBuf), "%d", sats);
+            lv_label_set_text(ui_LabelGpsCount, satBuf);
+
+            // Turn on the appropriate color bar
+            if (sats >= 7) {
+                lv_obj_clear_flag(ui_centerLeftGreen, LV_OBJ_FLAG_HIDDEN);
+            } else if (sats >= 4) {
+                lv_obj_clear_flag(ui_centerLeftYellow, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_clear_flag(ui_centerLeftRed, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
 }
 
 void setup() {
@@ -107,8 +147,30 @@ void loop() {
 
     // PPS Counter Logic
     if (now - lastPPSUpdate >= 1000) {
-        pps = lastMessageCount;
+        uint32_t lastPps = lastMessageCount;
         lastMessageCount = 0;
+        if (pps != lastPps) {
+            pps = lastPps;
+
+            // --- SIGNAL HEALTH INDICATOR ---
+            // 1. Hide all indicators first to clear the previous state
+            lv_obj_add_flag(ui_centerRed, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_centerYellow, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_centerGreen, LV_OBJ_FLAG_HIDDEN);
+
+            // 2. Unhide the correct one based on the telemetry rate
+            if (pps >= 5) {
+                // Perfect 5Hz signal
+                lv_obj_clear_flag(ui_centerGreen, LV_OBJ_FLAG_HIDDEN);
+            } else if (pps >= 2) {
+                // Dropping packets, but still connected
+                lv_obj_clear_flag(ui_centerYellow, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                // Dead link or completely disconnected
+                lv_obj_clear_flag(ui_centerRed, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+
         lastPPSUpdate = now;
         Serial.printf("Incoming Rate: %d pkts/sec\n", pps);
     }

@@ -1,6 +1,6 @@
 {
-    "uiExportFolderPath": "/Users/ngoline/projects/nGoline/kart-data-logger/devices/KartDataDisplay/./src/ui",
-    "projectExportFolderPath": "/Users/ngoline/projects/nGoline/kart-data-logger/devices/KartDataDisplay",
+    "uiExportFolderPath": "/Users/ngoline/projects/nGoline/kart-data-logger/lib/ui",
+    "projectExportFolderPath": "/Users/ngoline/projects/nGoline/kart-data-logger/lib/",
     "drive_stdio": "-",
     "drive_stdio_path": "",
     "drive_posix": "-",

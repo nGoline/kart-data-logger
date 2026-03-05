@@ -3,6 +3,9 @@
 ImuManager::ImuManager() : _mpu(0x68) {}
 
 bool ImuManager::begin(int sda, int scl) {
+    _sda_pin = sda;
+    _scl_pin = scl;
+
     _mpu.initialize();
 
     if (!_mpu.testConnection()) {
@@ -29,6 +32,29 @@ ImuData ImuManager::update() {
     ImuData data = {0};
     int16_t ax, ay, az, gx, gy, gz;
 
+    // Check if the connection is still alive before reading
+    if (!_mpu.testConnection()) {
+        log_e("IMU: I2C Bus crashed! Initiating Auto-Recovery...");
+        
+        // 1. Nuke the crashed I2C driver
+        Wire.end();
+        delay(2); 
+        
+        // 2. Restart the I2C hardware
+        Wire.begin(_sda_pin, _scl_pin, 100000);
+        delay(5);
+        
+        // 3. Re-initialize the MPU if it went to sleep
+        _mpu.initialize();
+        
+        if (!_mpu.testConnection()) {
+            log_e("IMU: Auto-Recovery failed this cycle.");
+            return data; // Return zeros, we'll try again in 200ms
+        } else {
+            log_i("IMU: Bus recovered successfully.");
+        }
+    }
+
     _mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
     // 8G scale factor is 4096 LSB/g
@@ -45,25 +71,4 @@ ImuData ImuManager::update() {
     data.gForce = sqrt(pow(data.accelX, 2) + pow(data.accelY, 2));
 
     return data;
-}
-
-void ImuManager::startTask(QueueHandle_t telemetryQueue) {
-    xTaskCreatePinnedToCore([](void* p){
-        ImuManager* self = (ImuManager*)p;
-        QueueHandle_t q = (QueueHandle_t)pvTaskGetThreadLocalStoragePointer(NULL, 0); // Not ideal, passing via struct is better
-        
-        for (;;) {
-            ImuData rd = self->update();
-            
-            // Filter out gravity (1.0g baseline)
-            self->_gFiltered = self->_gAlpha * rd.gForce + (1.0f - self->_gAlpha) * self->_gFiltered;
-            float dynG = self->_gFiltered - 1.0f; 
-            if (dynG < 0.05f) dynG = 0.0f; // Noise floor
-
-            // Instead of extern volatile, we would ideally update a local struct 
-            // and send to the queue if the logger needs to broadcast it.
-            
-            vTaskDelay(pdMS_TO_TICKS(10)); // 100Hz IMU sampling
-        }
-    }, "IMU_Task", 4096, this, 2, NULL, 1);
 }

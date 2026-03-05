@@ -144,9 +144,9 @@ bool GpsManager::update() {
     bool newData = false;
     while (_serialGps.available() > 0) {
         if (_gps.encode(_serialGps.read())) {
-            if (_gps.location.isUpdated()) {
+            // if (_gps.location.isUpdated()) {
                 newData = true;
-            }
+            // }
         }
     }
     return newData;

@@ -27,6 +27,14 @@ extern lv_obj_t *ui_speed8;
 extern lv_obj_t *ui_speed9;
 extern lv_obj_t *ui_speed10;
 extern lv_obj_t *ui_Image_needle;
+extern lv_obj_t *ui_centerRed;
+extern lv_obj_t *ui_centerYellow;
+extern lv_obj_t *ui_centerGreen;
+extern lv_obj_t *ui_LabesEspNow;
+extern lv_obj_t *ui_centerLeftRed;
+extern lv_obj_t *ui_centerLeftYellow;
+extern lv_obj_t *ui_centerLeftGreen;
+extern lv_obj_t *ui_LabelGpsCount;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
