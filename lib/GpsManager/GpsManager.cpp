@@ -314,12 +314,17 @@ double GpsManager::getSpeed(float gForce, float gyroZ) {
         _moveCounter = 0;
     }
 
-    bool consideredMoving = (_moveCounter >= _moveCountThreshold);
+    // 1. GPS says we are moving based on hysteresis
+    bool gpsMoving = (_moveCounter >= _moveCountThreshold);
 
-    // Use IMU to suppress GPS micro-movements: if IMU shows no dynamic motion, prefer stopped
+    // 2. IMU says there is dynamic activity
     const float IMU_DYN_G_STOP = 0.08f; // increased deadband
     const float IMU_GYROZ_STOP = 3.5f;  // degrees/sec
-    consideredMoving = gForce > IMU_DYN_G_STOP || fabsf(gyroZ) > IMU_GYROZ_STOP;
+    bool imuActive = gForce > IMU_DYN_G_STOP || fabsf(gyroZ) > IMU_GYROZ_STOP;
+
+    // 3. COMBINE: Consider moving if GPS sees speed OR IMU sees activity
+    // This prevents a single low-G sample from zeroing your speed while driving.
+    bool consideredMoving = gpsMoving || imuActive;
 
     // Return smoothed speed only when considered moving
     if (!consideredMoving){
