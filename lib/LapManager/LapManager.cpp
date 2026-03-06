@@ -22,7 +22,7 @@ bool LapManager::processTelemetry(const TelemetryMsg& data) {
         if (!_insideGate && (now - _lastLapMillis > MIN_LAP_TIME_MS)) {
             _insideGate = true;
             _minDistInGate = dist;
-            log_d("LapManager: Entered finish gate. Dist: %.2fm", dist);
+            log_i("LapManager: Entered finish gate. Dist: %.2fm", dist);
         }
         
         // Track the "Apex" of the finish line crossing
@@ -37,6 +37,7 @@ bool LapManager::processTelemetry(const TelemetryMsg& data) {
         lapJustFinished = true;
     }
 
+    log_i("Dist to Finish: %.2fm | InsideGate: %s", dist, _insideGate ? "YES" : "NO");
     return lapJustFinished;
 }
 

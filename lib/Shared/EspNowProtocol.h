@@ -14,10 +14,12 @@ enum MsgType : uint8_t {
 // 2. The Core Data Struct (The "Contract" between boards)
 // Using fixed-width types (float/uint32_t) ensures 
 // both ESP32s see the exact same byte alignment.
-struct TelemetryMsg {
+struct __attribute__((packed)) TelemetryMsg {
     uint8_t type;         // MsgType
     float speedKmph;
-    float gForce;
+    float gForceX; // Lateral Gs (Cornering)
+    float gForceY; // Longitudinal Gs (Braking/Accel)
+    float totalGForce; // Combined G-Force Magnitude (for G-Force needle)
     float gyroZ;
     double lat;
     double lng;

@@ -16,7 +16,7 @@ class GpsManager {
 public:
     GpsManager(int8_t rxPin, int8_t txPin);
     
-    void begin();
+    bool begin();
     bool update();
 
     double getLat();

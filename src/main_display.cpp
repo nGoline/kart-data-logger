@@ -136,8 +136,8 @@ void syncUI() {
         }
     }
 
-    // 2. Dynamic "Danger Zone" Blinking (Runs every loop if level <= 10)
-    if (helmetBatteryCurrentLevel <= 10) {
+    // 2. Dynamic "Danger Zone" Blinking (Runs every loop if level <= 20)
+    if (helmetBatteryCurrentLevel <= 20) {
         // Blink every 500ms using the ESP32 internal clock
         bool show = (millis() / 500) % 2; 
         
@@ -186,9 +186,6 @@ void loop() {
     uint32_t now = millis();
     lv_tick_inc(now - lv_last_tick);
     lv_last_tick = now;
-
-    // Background Radio Logic (Channel Hopping)
-    EspNowManager::updateScanner();
 
     // PPS Counter Logic
     if (now - lastPPSUpdate >= 1000) {

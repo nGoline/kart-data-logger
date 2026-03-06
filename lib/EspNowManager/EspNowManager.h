@@ -7,6 +7,9 @@
 #include <esp_wifi.h>
 #include "EspNowProtocol.h"
 
+// Define our dedicated racing channel
+#define ESPNOW_CHANNEL 1
+
 class EspNowManager {
 public:
     static bool newDataAvailable;
@@ -16,12 +19,6 @@ public:
 
 #ifdef IS_LOGGER
     static esp_err_t sendTelemetry(const TelemetryMsg &msg);
-#endif
-
-#ifdef IS_DISPLAY
-    static bool isLocked;
-    static uint8_t currentChannel;
-    static void updateScanner();
 #endif
 
 private:

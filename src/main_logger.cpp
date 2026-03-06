@@ -4,13 +4,18 @@
 
 // Modular Libraries
 #include "EspNowManager.h"
-#include "GpsManager.h"
 #include "ImuManager.h"
 #include "AudioManager.h"
 #include "BatteryManager.h"
 #include "LapManager.h"
 #include "VoiceParser.h"
 #include "EspNowProtocol.h"
+
+#if defined(USE_FAKE_GPS)
+#include "FakeGps.h"
+#else
+#include "GpsManager.h"
+#endif
 
 // --- HARDWARE CONFIG ---
 #define GPS_RX RX
@@ -23,11 +28,15 @@
 #define I2C_SCL SCL
 
 // --- GLOBAL MANAGERS ---
+#if defined(USE_FAKE_GPS)
+FakeGps fakeGps;
+#else
 GpsManager gps(GPS_RX, GPS_TX);
+#endif
 ImuManager imu;
 AudioManager audio(I2S_BCLK, I2S_LRC, I2S_DIN);
 BatteryManager battery(BATT_ADC, 2.0f);
-LapManager lapTimer({-23.5505, -46.6333, 15.0f});
+LapManager lapTimer({-22.772339, -47.139500, 15.0f});
 
 // --- FREERTOS QUEUE & MUTEX ---
 QueueHandle_t telemetryQueue;
@@ -40,6 +49,18 @@ void telemetryTask(void *pvParameters) {
     const TickType_t xFrequency = pdMS_TO_TICKS(200); // 5Hz (Matches GPS rate)
 
     for (;;) {
+        #if defined(USE_FAKE_GPS)
+        static TelemetryMsg msg;
+        if (fakeGps.update(msg)) {
+            log_d("Fake GPS Update");
+        } else {
+            log_w("Fake GPS failed to update!");
+        }
+
+        if (xSemaphoreTake(hardwareBusMutex, portMAX_DELAY) == pdTRUE) {
+            xSemaphoreGive(hardwareBusMutex); // Give it back instantly
+        }
+        #else
         // 1. Update Sensors
         gps.update();
         ImuData imuData = {0}; // Default to 0 in case we can't read
@@ -56,7 +77,9 @@ void telemetryTask(void *pvParameters) {
         TelemetryMsg msg;
         msg.type = MSG_TELEMETRY;
         msg.speedKmph = gps.getSpeed(imuData.gForce, imuData.gyroZ);
-        msg.gForce = imuData.gForce;
+        msg.gForceX = imuData.accelX; // Lateral Gs for cornering
+        msg.gForceY = imuData.accelY; // Longitudinal Gs for braking/accel
+        msg.totalGForce = imuData.gForce; // Combined G-Force magnitude for the needle
         msg.gyroZ = imuData.gyroZ;
         msg.lat = gps.getLat();
         msg.lng = gps.getLng();
@@ -64,21 +87,26 @@ void telemetryTask(void *pvParameters) {
         msg.hasFix = gps.hasFix() ? 1 : 0;
         msg.timestamp = gps.getEpochMs();
         msg.helmetBattery = (uint8_t)battery.getPercentage();
+        #endif
 
         // 3. Send to Queue (Don't block if full, just drop the oldest)
         if (xQueueSend(telemetryQueue, &msg, 0) != pdPASS) {
             log_w("Telemetry Queue Full! Dropping packet.");
         }
         
+        #if defined(USE_FAKE_GPS)
+        delay(200); // Simulate GPS update delay
+        #else
         // Wait for the next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        #endif
     }
 }
 
 void setup() {
 #if ARDUINO_USB_CDC_ON_BOOT == 1
     // If the board is configured to use USB CDC on boot, we need to wait for the USB connection to be established before we can use Serial.
-    delay(5000);
+    delay(2000);
 #endif
 
     Serial.begin(115200);
@@ -130,26 +158,26 @@ void setup() {
     audio.begin(LittleFS, 15); 
     
     #if defined(HAS_STARTUP_AUDIO_CUES)
-    audio.queueAudio("/startup.wav");    
-    audio.queueAudio("/wait.wav");
-    audio.queueAudio("/initializing.wav");
-    audio.queueAudio("/silence.wav");
+    audio.tryQueueAudio("/startup.wav");    
+    audio.tryQueueAudio("/wait.wav");
+    audio.tryQueueAudio("/initializing.wav");
+    audio.tryQueueAudio("/silence.wav");
     #endif
 
     if (!imuStarted) {
         #if defined(HAS_STARTUP_AUDIO_CUES)
-        audio.queueAudio("/error.wav");
-        audio.queueAudio("/imu.wav");
-        audio.queueAudio("/silence.wav");
+        audio.tryQueueAudio("/error.wav");
+        audio.tryQueueAudio("/imu.wav");
+        audio.tryQueueAudio("/silence.wav");
         #endif
 
         while(1); // Halt if IMU is dead
     }
 
     #if defined(HAS_STARTUP_AUDIO_CUES)
-    audio.queueAudio("/imu.wav");
-    audio.queueAudio("/ready.wav");
-    audio.queueAudio("/silence.wav");
+    audio.tryQueueAudio("/imu.wav");
+    audio.tryQueueAudio("/ready.wav");
+    audio.tryQueueAudio("/silence.wav");
     #endif
 
     // 4. Battery Check
@@ -158,34 +186,51 @@ void setup() {
     log_i("Battery: %d%%", battLevel);
     
     #if defined(HAS_STARTUP_AUDIO_CUES)
-    audio.queueAudio("/battery_level.wav");
+    audio.tryQueueAudio("/battery_level.wav");
     VoiceParser::queueNumber(audio, battLevel); // Uncomment if VoiceParser is ready
-    audio.queueAudio("/silence.wav");
+    audio.tryQueueAudio("/silence.wav");
 
     // 5. ESP-NOW Radio
-    audio.queueAudio("/initializing.wav");
-    audio.queueAudio("/radio.wav");
-    audio.queueAudio("/silence.wav");
+    audio.tryQueueAudio("/initializing.wav");
+    audio.tryQueueAudio("/radio.wav");
+    audio.tryQueueAudio("/silence.wav");
     #endif
 
     if (EspNowManager::begin()) {
         log_i("Radio: ESP-NOW Broadcast Active.");
 
         #if defined(HAS_STARTUP_AUDIO_CUES)
-        audio.queueAudio("/radio.wav");
-        audio.queueAudio("/ready.wav");
-        audio.queueAudio("/silence.wav");
+        audio.tryQueueAudio("/radio.wav");
+        audio.tryQueueAudio("/ready.wav");
+        audio.tryQueueAudio("/silence.wav");
         #endif
     }
 
 #ifndef SMOKE_TEST
     // 6. GPS
     #if defined(HAS_STARTUP_AUDIO_CUES)
-    audio.queueAudio("/initializing.wav");
-    audio.queueAudio("/gps.wav");
-    audio.queueAudio("/silence.wav");
+    audio.tryQueueAudio("/initializing.wav");
+    audio.tryQueueAudio("/gps.wav");
+    audio.tryQueueAudio("/silence.wav");
     #endif
-    gps.begin();
+
+    #if defined(USE_FAKE_GPS)
+    if (!fakeGps.begin("/real_car_ride.csv")) {
+        log_e("Failed to start Fake GPS!");
+        while(1);
+    } else {
+        log_i("Fake GPS Initialized with replay file.");
+    }
+    #else
+    if (!gps.begin()) {
+        log_e("Failed to start GPS!");
+        #if defined(HAS_STARTUP_AUDIO_CUES)
+        audio.tryQueueAudio("/error.wav");
+        audio.tryQueueAudio("/gps.wav");
+        #endif
+        while(1);
+    }
+    #endif
 
     // 7. Create Telemetry Queue (Holds up to 10 messages)
     telemetryQueue = xQueueCreate(10, sizeof(TelemetryMsg));
@@ -243,10 +288,10 @@ void loop() {
                 log_i("GPS Lock Acquired! (%d Sats). System Ready.", msg.sats);
                 
                 #if defined(HAS_STARTUP_AUDIO_CUES)
-                audio.queueAudio("/gps.wav");
-                audio.queueAudio("/ready.wav");
-                audio.queueAudio("/silence.wav");
-                audio.queueAudio("/system_ready.wav");
+                audio.tryQueueAudio("/gps.wav");
+                audio.tryQueueAudio("/ready.wav");
+                audio.tryQueueAudio("/silence.wav");
+                audio.tryQueueAudio("/system_ready.wav");
                 #endif
             } else {
                 // STILL SEARCHING: Announce satellites if the count changed 
@@ -255,10 +300,10 @@ void loop() {
                     log_i("Searching... Satellites: %d", msg.sats);
                     
                     #if defined(HAS_STARTUP_AUDIO_CUES)
-                    audio.queueAudio("/wait.wav");
+                    audio.tryQueueAudio("/wait.wav");
                     VoiceParser::queueNumber(audio, msg.sats);
-                    audio.queueAudio("/gps.wav");
-                    audio.queueAudio("/silence.wav");
+                    audio.tryQueueAudio("/gps.wav");
+                    audio.tryQueueAudio("/silence.wav");
                     #endif
                     
                     lastSats = msg.sats;
@@ -287,8 +332,6 @@ void loop() {
 
             // --- ANNOUNCE LAP + DELTA ---
             VoiceParser::announceLapTime(audio, minutes, seconds, millis, isBest);
-            
-            audio.queueAudio("/silence.wav");
 
             if (pt > 0) { // Don't announce a delta on the first lap   
                 // Calculate Delta (Difference from previous lap)
@@ -299,13 +342,14 @@ void loop() {
                 int deltaMillis = abs(delta % 1000);
 
                 if (deltaMinutes > 0 || deltaSeconds > 0 || deltaMillis > 0) {
+                    audio.tryQueueAudio("/silence.wav");
                     VoiceParser::announceDeltaTime(audio, deltaMinutes, deltaSeconds, deltaMillis, delta <= 0);
                 }
             }
         }
 
         // Debug Log
-        log_i("SENT: Spd:%.1f G:%.2f Sats:%d Fix:%d | Batt: %.2f%%", 
+        log_d("SENT: Spd:%.1f G:%.2f Sats:%d Fix:%d | Batt: %.2f%%", 
               msg.speedKmph, msg.gForce, msg.sats, msg.hasFix, battery.getPercentage());
     }
 #endif

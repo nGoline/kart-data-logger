@@ -12,8 +12,7 @@ public:
     
     // Pass LittleFS or SD here
     bool begin(FS &fs, int volume = 15);
-    
-    void queueAudio(const char* filename);
+
     bool tryQueueAudio(const char* filename);
     void setVolume(int volume);
     bool isPlaying();
@@ -28,7 +27,7 @@ private:
     std::queue<String> _playlist;
     SemaphoreHandle_t _mutex;
     
-    void playNextInQueue();
+    void playNextInQueue(String nextFile);
     static void audioTask(void* parameter);
 };
 

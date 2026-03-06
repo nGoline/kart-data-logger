@@ -29,13 +29,13 @@ uint64_t GpsManager::getEpochMs() {
     return (epochSeconds * 1000ULL) + (_gps.time.centisecond() * 10ULL);
 }
 
-void GpsManager::begin() {
+bool GpsManager::begin() {
     bool foundBaud = false;
 
-    // 1. Tenta primeiro 115200 (Otimizado para o que já está salvo)
-    log_i("[GPS] Tentando conexão a 115200 baud...");
+    // 1. Try 115200 first (Optimized for what is already saved)
+    log_i("Testing connection at 115200 baud...");
     
-    _serialGps.setRxBufferSize(1024); // Define ANTES do begin
+    _serialGps.setRxBufferSize(1024); // Set BEFORE begin
     _serialGps.begin(115200, SERIAL_8N1, _rxPin, _txPin);
     
     uint32_t startCheck = millis();
@@ -43,18 +43,18 @@ void GpsManager::begin() {
         if (_serialGps.available() > 0) {
             if (_serialGps.read() == '$') { 
                 foundBaud = true;
-                log_i("[GPS] Módulo detectado a 115200 baud.");
+                log_i("Module detected at 115200 baud.");
                 break;
             }
         }
     }
 
-    // 2. Fallback para 9600 caso o módulo tenha resetado
+    // 2. Fallback to 9600 if the module has reset
     if (!foundBaud) {
-        log_i("[GPS] Sem resposta a 115200. Tentando 9600...");
+        log_i("No response at 115200. Trying 9600...");
         _serialGps.end();
         
-        _serialGps.setRxBufferSize(1024); // Define ANTES do begin
+        _serialGps.setRxBufferSize(1024); // Set BEFORE begin
         _serialGps.begin(9600, SERIAL_8N1, _rxPin, _txPin);
         
         startCheck = millis();
@@ -62,9 +62,9 @@ void GpsManager::begin() {
             if (_serialGps.available() > 0) {
                 if (_serialGps.read() == '$') {
                     foundBaud = true;
-                    log_i("[GPS] Módulo a 9600. Fazendo upgrade...");
+                    log_i("Module detected at 9600 baud. Upgrading...");
                     
-                    // Comando UBX: CFG-PRT para 115200
+                    // UBX Command: CFG-PRT to 115200
                     const uint8_t setBaud115200[] = {
                         0x01,                   // Port ID (UART1)
                         0x00,                   // Reserved
@@ -89,27 +89,28 @@ void GpsManager::begin() {
         }
     }
 
-    if (foundBaud) {
-        log_i("[GPS] Serial communication established.");
-
-        // checkFirmware();
-
-        UBXConfig initial = readCurrentConfig();
-        log_i("BEFORE: Model: %d | Rate: %dms | PerfMode: %d", initial.dynModel, initial.measRate, initial.perfMode);
-
-        if (initial.dynModel != 4 || initial.measRate != 200 || initial.perfMode != 0) {
-            log_i("[GPS] Current configuration is not ideal for kart. Applying adjustments...");
-            configureUblox();
-
-            delay(200);
-            UBXConfig final = readCurrentConfig();
-            log_i("AFTER:  Model: %d | Rate: %dms | PerfMode: %d", final.dynModel, final.measRate, final.perfMode);
-        } else {
-            log_i("[GPS] Configuration already optimized for kart. No changes needed.");
-        }
-    } else {
-        log_e("[GPS] Error: GPS module not responding at 115200 or 9600 baud.");
+    if (!foundBaud) {
+        log_e("Error: GPS module not responding at 115200 or 9600 baud.");
+        return false;
     }
+
+    log_i("Serial communication established.");
+
+    UBXConfig initial = readCurrentConfig();
+    log_d("BEFORE: Model: %d | Rate: %dms | PerfMode: %d", initial.dynModel, initial.measRate, initial.perfMode);
+
+    if (initial.dynModel != 4 || initial.measRate != 200 || initial.perfMode != 0) {
+        log_d("Current configuration is not ideal for kart. Applying adjustments...");
+        configureUblox();
+
+        delay(200);
+        UBXConfig final = readCurrentConfig();
+        log_d("AFTER:  Model: %d | Rate: %dms | PerfMode: %d", final.dynModel, final.measRate, final.perfMode);
+    } else {
+        log_d("Configuration already optimized for kart. No changes needed.");
+    }
+
+    return true;
 }
 
 void GpsManager::configureUblox() {
@@ -122,7 +123,7 @@ void GpsManager::configureUblox() {
     sendUBXWithChecksum(0x06, 0x08, (uint8_t*)set5Hz, sizeof(set5Hz));
     delay(100);
 
-    // CFG-NAV5: Dynamic Model = Automotive (Otimizado para acelerações e curvas)
+    // CFG-NAV5: Dynamic Model = Automotive (Optimized for accelerations and turns)
     const uint8_t setAutomotive[] = {
         0xFF, 0xFF,             // Mask (DYN + FixMode)
         0x04,                   // Dynamic Model: 4 = Automotive

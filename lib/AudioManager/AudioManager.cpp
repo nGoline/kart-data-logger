@@ -39,62 +39,62 @@ void AudioManager::audioTask(void* parameter) {
     AudioManager* self = (AudioManager*)parameter;
     
     for (;;) {
-        // 1. SAFE AUDIO LOOP
-        // Only run the audio DMA chunker if the IMU isn't currently using the bus.
-        // We use a short timeout (10ms) so if the IMU is reading, the audio task yields.
+        // 1. SAFE AUDIO CHUNKING
         if (xSemaphoreTake(hardwareBusMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             self->_audio.loop();
             xSemaphoreGive(hardwareBusMutex);
         }
 
+        // 2. QUEUE MANAGEMENT
         if (!self->_audio.isRunning()) {
-            if (xSemaphoreTake(self->_mutex, 0) == pdTRUE) {
+            String nextFile = "";
+            bool hasNext = false;
+
+            // QUICK LOCK: Just pop the string and unlock immediately
+            if (xSemaphoreTake(self->_mutex, portMAX_DELAY) == pdTRUE) {
                 if (!self->_playlist.empty()) {
-                    // Small gap between files for clarity
-                    vTaskDelay(pdMS_TO_TICKS(100));
-                    self->playNextInQueue();
+                    nextFile = self->_playlist.front();
+                    self->_playlist.pop();
+                    hasNext = true;
                 } else {
-                    self->_audio.stopSong(); // RELEASE THE BUS
+                    self->_audio.stopSong();
                 }
-                xSemaphoreGive(self->_mutex);
+                xSemaphoreGive(self->_mutex); // Mutex released! Core 1 can now queue freely.
+            }
+
+            // OUTSIDE THE MUTEX: Do the slow delays and hardware loading
+            if (hasNext) {
+                vTaskDelay(pdMS_TO_TICKS(100)); // Gap between files
+                self->playNextInQueue(nextFile);
             }
         }
+
         // Critical for Core 0 stability
         vTaskDelay(pdMS_TO_TICKS(1)); 
     }
 }
 
-void AudioManager::queueAudio(const char* filename) {
-    if (xSemaphoreTake(_mutex, portMAX_DELAY) == pdTRUE) {
-        _playlist.push(String(filename));
-        xSemaphoreGive(_mutex);
-        log_d("Audio: Queued %s", filename);
-    }
-}
-
 bool AudioManager::tryQueueAudio(const char* filename) {
-    if (xSemaphoreTake(_mutex, 0) == pdTRUE) {
+    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        log_d("Audio: Trying to queue %s", filename);
         _playlist.push(String(filename));
         xSemaphoreGive(_mutex);
         log_d("Audio: Queued %s", filename);
         return true;
     }
+
+    log_w("Audio: Could not queue %s (bus busy)", filename);
     return false;
 }
 
-void AudioManager::playNextInQueue() {
-    String nextFile = _playlist.front();
-    _playlist.pop();
-
-    // 2. SAFE FILE LOADING (This is what was crashing your IMU!)
-    // We lock the bus until the heavy LittleFS read is completely finished.
+void AudioManager::playNextInQueue(String nextFile) {
     if (xSemaphoreTake(hardwareBusMutex, portMAX_DELAY) == pdTRUE) {
         _audio.stopSong(); 
-        log_i("Audio: Playing %s", nextFile.c_str());
+        log_d("Audio: Playing %s", nextFile.c_str());
         
         _audio.connecttoFS(*_fs, nextFile.c_str());
         
-        xSemaphoreGive(hardwareBusMutex); // Bus is safe again!
+        xSemaphoreGive(hardwareBusMutex); 
     }
 }
 
