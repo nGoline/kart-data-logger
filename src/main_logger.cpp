@@ -36,7 +36,7 @@ GpsManager gps(GPS_RX, GPS_TX);
 ImuManager imu;
 AudioManager audio(I2S_BCLK, I2S_LRC, I2S_DIN);
 BatteryManager battery(BATT_ADC, 2.0f);
-LapManager lapTimer({-22.772339, -47.139500, 15.0f});
+LapManager lapTimer;
 
 // --- FREERTOS QUEUE & MUTEX ---
 QueueHandle_t telemetryQueue;
@@ -52,7 +52,7 @@ void telemetryTask(void *pvParameters) {
         #if defined(USE_FAKE_GPS)
         static TelemetryMsg msg;
         if (fakeGps.update(msg)) {
-            log_d("Fake GPS Update");
+            log_d("Fake GPS Update: Epoch: %llu", msg.timestamp);
         } else {
             log_w("Fake GPS failed to update!");
         }
@@ -263,6 +263,13 @@ void setup() {
     extern void startSmokeTest();
     startSmokeTest();
 #endif
+
+    // 8. Initialize the default finish line for lap timing (This can be updated later via a config or command)
+    FinishLine defaultFinishLine = {
+        -22.771418664405065, -47.14073062561548, // Left point (facing forward on the track)
+        -22.771196111353337, -47.140467744373616    // Right point (facing forward on the track)
+    };
+    lapTimer.setFinishLine(defaultFinishLine);
 }
 
 void loop() {
@@ -322,9 +329,10 @@ void loop() {
 
         // 2. Check for Lap Completion
         if (lapTimer.processTelemetry(msg)) {
-            uint32_t lt = lapTimer.getLastLapTime();
-            uint32_t bt = lapTimer.getBestLapTime();
-            uint32_t pt = lapTimer.getPreviousLapTime();
+            log_d("Lap Completed!");
+            uint64_t lt = lapTimer.getLastLapTime();
+            uint64_t bt = lapTimer.getBestLapTime();
+            uint64_t pt = lapTimer.getPreviousLapTime();
             int minutes = lt / 60000;
             int seconds = (lt % 60000) / 1000;
             int millis = lt % 1000;
@@ -350,7 +358,7 @@ void loop() {
 
         // Debug Log
         log_d("SENT: Spd:%.1f G:%.2f Sats:%d Fix:%d | Batt: %.2f%%", 
-              msg.speedKmph, msg.gForce, msg.sats, msg.hasFix, battery.getPercentage());
+              msg.speedKmph, msg.totalGForce, msg.sats, msg.hasFix, battery.getPercentage());
     }
 #endif
 

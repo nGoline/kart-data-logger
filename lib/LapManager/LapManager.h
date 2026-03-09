@@ -5,36 +5,46 @@
 #include "EspNowProtocol.h" // For TelemetryMsg/Data
 #include "AudioManager.h"
 
+// Define the track width by placing a point on the left and right sides
 struct FinishLine {
-    double lat;
-    double lng;
-    float radius; // in meters
+    double leftLat;
+    double leftLng;
+    double rightLat;
+    double rightLng;
 };
 
 class LapManager {
 public:
-    LapManager(FinishLine line);
-    
+    void setFinishLine(const FinishLine& line);
+
     // Returns true if a lap was just completed
     bool processTelemetry(const TelemetryMsg& data);
 
-    uint32_t getLastLapTime() const { return _lastLapTime; }
-    uint32_t getPreviousLapTime() const { return _prevLapTime; }
-    uint32_t getBestLapTime() const { return _bestLapTime; }
+    uint64_t getLastLapTime() const { return lastLapTimeMs; }
+    uint64_t getPreviousLapTime() const { return previousLapTimeMs; }
+    uint64_t getBestLapTime() const { return bestLapTimeMs; }
 
 private:
-    FinishLine _line;
-    uint32_t _lastLapMillis = 0;
-    uint32_t _lastLapTime = 0;
-    uint32_t _prevLapTime = 0;
-    uint32_t _bestLapTime = 0;
+    FinishLine _gate;
     int32_t _deltaLast = 0;
+
+    // Tracking the previous point to draw a line segment
+    bool _hasLastPoint = false;
+    double _lastLat;
+    double _lastLng;
+    uint64_t _lastTime;
+
+    // Tracking the previous lap time
+    uint64_t currentLapStartTime;
+    uint64_t previousLapTimeMs;
+    uint64_t lastLapTimeMs;
+    uint64_t bestLapTimeMs;
     
-    bool _insideGate = false;
-    double _minDistInGate = 999.9;
     const uint32_t MIN_LAP_TIME_MS = 15000; // Increased to 15s for karts
 
-    void completeLap(uint32_t now);
+    bool checkLineCrossing(double Ax, double Ay, double Bx, double By, 
+                           double Cx, double Cy, double Dx, double Dy, 
+                           double &fraction);
 };
 
 #endif

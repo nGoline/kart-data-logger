@@ -27,7 +27,7 @@ float BatteryManager::getVoltage() {
     float batteryVoltage = pinVoltage * 2.0f;
 
     // 4. Update your log to match the real variables
-    log_d("Raw: %.2f | Pin: %.2fV | Total: %.2fV", avgRaw, pinVoltage, batteryVoltage);
+    log_v("Raw: %.2f | Pin: %.2fV | Total: %.2fV", avgRaw, pinVoltage, batteryVoltage);
     
     return batteryVoltage;
 }

@@ -21,7 +21,8 @@ void my_threaded_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_ma
 
 // --- GLOBAL STATE ---
 LogManager logManager;
-lv_obj_t* barras_speed[10];
+lv_obj_t* spped_bars[10];
+lv_obj_t* gForce_bars[20];
 static uint32_t lv_last_tick = 0;
 
 // Smoothing & Metrics
@@ -42,15 +43,15 @@ void syncUI() {
         if (EspNowManager::lastTelemetry.timestamp == lastProcessedTimestamp) {
             return; // This is a Wi-Fi echo/duplicate. Ignore it!
         }
-        lastProcessedTimestamp = EspNowManager::lastTelemetry.timestamp;
-
-        targetSpeed = EspNowManager::lastTelemetry.speedKmph;
-        lastMessageCount++;
 
         // 2. Push to SD Log Queue (Non-blocking)
         if (LogManager::logQueue != NULL) {
             xQueueSend(LogManager::logQueue, &EspNowManager::lastTelemetry, 0);
         }
+
+        lastProcessedTimestamp = EspNowManager::lastTelemetry.timestamp;
+        targetSpeed = EspNowManager::lastTelemetry.speedKmph;
+        lastMessageCount++;
 
         // 3. Smooth the needle movement (Lerp)
         if (abs(targetSpeed - displaySpeed) > 0.05) {
@@ -64,10 +65,10 @@ void syncUI() {
         lv_img_set_angle(ui_Image_needle, (int32_t)angle_decimal);
 
         // 5. Update Speed Bars
-        int num_barras_vivas = map((int)displaySpeed, 0, 100, 0, 10);
+        int num_live_bars = map((int)displaySpeed, 0, 100, 0, 10);
         for (int i = 0; i < 10; i++) {
-            if (i < num_barras_vivas) lv_obj_clear_flag(barras_speed[i], LV_OBJ_FLAG_HIDDEN);
-            else lv_obj_add_flag(barras_speed[i], LV_OBJ_FLAG_HIDDEN);
+            if (i < num_live_bars) lv_obj_clear_flag(spped_bars[i], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(spped_bars[i], LV_OBJ_FLAG_HIDDEN);
         }
 
         // 6. Update Digital Label
@@ -75,12 +76,19 @@ void syncUI() {
         snprintf(buf, sizeof(buf), "%.1f", displaySpeed);
         lv_label_set_text(ui_Label_speed, buf);
 
-        // ==========================================
-        // 7. Update GPS Satellite Indicator
-        // ==========================================
+        // 7. Update GForge Indicator
+        int activeGIndex = (int)((EspNowManager::lastTelemetry.totalGForce - 0.125) / 0.125f);
+        if (activeGIndex < 0) activeGIndex = 0;
+        else if (activeGIndex > 19) activeGIndex = 19;
+        log_d("G-Force: %.2f, Bars: %d", EspNowManager::lastTelemetry.totalGForce, activeGIndex);
+        for (int i = 0; i < 20; i++) {
+            if (i < activeGIndex) lv_obj_clear_flag(gForce_bars[i], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(gForce_bars[i], LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // 8. Update GPS Satellite Indicator
         uint8_t sats = EspNowManager::lastTelemetry.sats;
         static uint8_t lastSats = 255; // Use 255 so it guarantees an update on the very first loop
-
         if (sats != lastSats) {
             lastSats = sats;
             // First, hide all colors to clear the previous state
@@ -108,9 +116,10 @@ void syncUI() {
             }
         }
 
-        // --- HELMET BATTERY UPDATE ---
+        // 9. Update Helmet Battery Level
         static uint8_t lastBatteryLevel = 255; // Initialize with impossible value
         helmetBatteryCurrentLevel = EspNowManager::lastTelemetry.helmetBattery;
+        if (helmetBatteryCurrentLevel >= 100) helmetBatteryCurrentLevel = 99; // Clamp to 99%
 
         if (helmetBatteryCurrentLevel != lastBatteryLevel) {
             lastBatteryLevel = helmetBatteryCurrentLevel;
@@ -168,11 +177,21 @@ void setup() {
 
     // 3. Initialize UI Widgets
     ui_init();
-    barras_speed[0] = ui_speed1; barras_speed[1] = ui_speed2;
-    barras_speed[2] = ui_speed3; barras_speed[3] = ui_speed4;
-    barras_speed[4] = ui_speed5; barras_speed[5] = ui_speed6;
-    barras_speed[6] = ui_speed7; barras_speed[7] = ui_speed8;
-    barras_speed[8] = ui_speed9; barras_speed[9] = ui_speed10;
+    spped_bars[0] = ui_speed1; spped_bars[1] = ui_speed2;
+    spped_bars[2] = ui_speed3; spped_bars[3] = ui_speed4;
+    spped_bars[4] = ui_speed5; spped_bars[5] = ui_speed6;
+    spped_bars[6] = ui_speed7; spped_bars[7] = ui_speed8;
+    spped_bars[8] = ui_speed9; spped_bars[9] = ui_speed10;
+    gForce_bars[0] = ui_gForce1; gForce_bars[1] = ui_gForce2;
+    gForce_bars[2] = ui_gForce3; gForce_bars[3] = ui_gForce4;
+    gForce_bars[4] = ui_gForce5; gForce_bars[5] = ui_gForce6;
+    gForce_bars[6] = ui_gForce7; gForce_bars[7] = ui_gForce8;
+    gForce_bars[8] = ui_gForce9; gForce_bars[9] = ui_gForce10;
+    gForce_bars[10] = ui_gForce11; gForce_bars[11] = ui_gForce12;
+    gForce_bars[12] = ui_gForce13; gForce_bars[13] = ui_gForce14;
+    gForce_bars[14] = ui_gForce15; gForce_bars[15] = ui_gForce16;
+    gForce_bars[16] = ui_gForce17; gForce_bars[17] = ui_gForce18;
+    gForce_bars[18] = ui_gForce19; gForce_bars[19] = ui_gForce20;
 
     // 4. Initialize Managers
     EspNowManager::begin();  // Starts scanning for logger

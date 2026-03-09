@@ -26,7 +26,6 @@ extern lv_obj_t *ui_speed7;
 extern lv_obj_t *ui_speed8;
 extern lv_obj_t *ui_speed9;
 extern lv_obj_t *ui_speed10;
-extern lv_obj_t *ui_Image_needle;
 extern lv_obj_t *ui_centerRed;
 extern lv_obj_t *ui_centerYellow;
 extern lv_obj_t *ui_centerGreen;
@@ -39,6 +38,28 @@ extern lv_obj_t *ui_centerRightRed;
 extern lv_obj_t *ui_centerRightYellow;
 extern lv_obj_t *ui_centerRightGreen;
 extern lv_obj_t *ui_LabelBattery;
+extern lv_obj_t *ui_leftRed;
+extern lv_obj_t *ui_gForce1;
+extern lv_obj_t *ui_gForce2;
+extern lv_obj_t *ui_gForce3;
+extern lv_obj_t *ui_gForce4;
+extern lv_obj_t *ui_gForce5;
+extern lv_obj_t *ui_gForce6;
+extern lv_obj_t *ui_gForce7;
+extern lv_obj_t *ui_gForce8;
+extern lv_obj_t *ui_gForce9;
+extern lv_obj_t *ui_gForce10;
+extern lv_obj_t *ui_gForce11;
+extern lv_obj_t *ui_gForce12;
+extern lv_obj_t *ui_gForce13;
+extern lv_obj_t *ui_gForce14;
+extern lv_obj_t *ui_gForce15;
+extern lv_obj_t *ui_gForce16;
+extern lv_obj_t *ui_gForce17;
+extern lv_obj_t *ui_gForce18;
+extern lv_obj_t *ui_gForce19;
+extern lv_obj_t *ui_gForce20;
+extern lv_obj_t *ui_Image_needle;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

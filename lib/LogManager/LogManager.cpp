@@ -39,7 +39,7 @@ void LogManager::createNewFile() {
     
     File f = SD.open(_currentFileName, FILE_WRITE);
     if (f) {
-        f.println("epoch,speed,gForce,sats,lat,lng"); //CSV header
+        f.println("epoch,speed,totalGForce,gForceX,gForceY,sats,lat,lng"); //CSV header
         f.close();
         log_i("LogManager: Started new log: %s", _currentFileName.c_str());
     }
@@ -57,9 +57,9 @@ void LogManager::task(void* param) {
             if (xSemaphoreTake(self->_spiMutex, pdMS_TO_TICKS(500))) {
                 File f = SD.open(self->_currentFileName, FILE_APPEND);
                 if (f) {
-                    f.printf("%llu,%.1f,%.2f,%d,%.6f,%.6f\n", 
-                             msg.timestamp, msg.speedKmph, msg.gForce, 
-                             msg.sats, msg.lat, msg.lng);
+                    f.printf("%llu,%.1f,%.2f,%.2f,%.2f,%d,%.6f,%.6f\n", 
+                             msg.timestamp, msg.speedKmph, msg.totalGForce, 
+                             msg.gForceX, msg.gForceY, msg.sats, msg.lat, msg.lng);
                              f.close();
                 }
                 xSemaphoreGive(self->_spiMutex);

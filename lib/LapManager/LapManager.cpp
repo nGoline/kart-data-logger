@@ -1,76 +1,123 @@
 #include "LapManager.h"
 #include <TinyGPS++.h>
 
-LapManager::LapManager(FinishLine line) : _line(line) {
-    log_i("LapManager: Finish line set at %.6f, %.6f (Radius: %.1fm)", _line.lat, _line.lng, _line.radius);
+void LapManager::setFinishLine(const FinishLine& line) {
+    _gate = line;
+    _hasLastPoint = false; // Reset when changing tracks
+    currentLapStartTime = 0;
+    bestLapTimeMs = 0xFFFFFFFFFFFFFFFF; // Max value
+    log_i("LapManager: New Finish Line Set.");
+}
+
+// Quick Haversine distance for logging purposes
+double getDistance(double lat1, double lon1, double lat2, double lon2) {
+    double p = 0.017453292519943295; // Math.PI / 180
+    double a = 0.5 - cos((lat2 - lat1) * p)/2 + 
+               cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p))/2;
+    return 12742000 * asin(sqrt(a)); // 2 * R; R = 6371 km
 }
 
 bool LapManager::processTelemetry(const TelemetryMsg& data) {
     if (!data.hasFix) return false;
 
-    // Use the static math helper from TinyGPS++
-    double dist = TinyGPSPlus::distanceBetween(
-        data.lat, data.lng, 
-        _line.lat, _line.lng
-    );
-
-    uint32_t now = millis();
-    bool lapJustFinished = false;
-
-    // 1. Entry Logic
-    if (dist < _line.radius) {
-        if (!_insideGate && (now - _lastLapMillis > MIN_LAP_TIME_MS)) {
-            _insideGate = true;
-            _minDistInGate = dist;
-            log_i("LapManager: Entered finish gate. Dist: %.2fm", dist);
-        }
-        
-        // Track the "Apex" of the finish line crossing
-        if (_insideGate && dist < _minDistInGate) {
-            _minDistInGate = dist;
-        }
-    } 
-    // 2. Exit Logic (Crossed the line)
-    else if (_insideGate) {
-        // Once we are outside the radius again, we complete the lap
-        completeLap(now);
-        lapJustFinished = true;
+    // We need at least two points to draw a line segment
+    if (!_hasLastPoint) {
+        _lastLat = data.lat;
+        _lastLng = data.lng;
+        _lastTime = data.timestamp;
+        _hasLastPoint = true;
+        return false;
     }
 
-    log_i("Dist to Finish: %.2fm | InsideGate: %s", dist, _insideGate ? "YES" : "NO");
-    return lapJustFinished;
+    double centerLat = (_gate.leftLat + _gate.rightLat) / 2.0;
+    double centerLng = (_gate.leftLng + _gate.rightLng) / 2.0;
+
+    bool crossed = false;
+    double fraction = 0.0;
+
+    double distanceToGateCenter = getDistance(data.lat, data.lng, centerLat, centerLng);
+    if (distanceToGateCenter < 10.0) {
+        crossed = checkLineCrossing(
+            _lastLng, _lastLat, data.lng, data.lat, 
+            _gate.leftLng, _gate.leftLat, _gate.rightLng, _gate.rightLat, 
+            fraction
+        );
+        log_d("Approaching Gate: %.1fm away", distanceToGateCenter);
+    }
+
+    // Save current point for the next loop iteration BEFORE we return
+    uint64_t timeA = _lastTime;
+    _lastLat = data.lat;
+    _lastLng = data.lng;
+    _lastTime = data.timestamp;
+
+    // Cooldown: Prevent double-triggering if sitting on the start line
+    if (crossed) {
+        if (data.timestamp - currentLapStartTime > 10000) { 
+            // INTERPOLATION: Calculate the exact millisecond the kart breached the line
+            uint64_t crossingTimeMs = timeA + (uint64_t)(fraction * (data.timestamp - timeA));
+            
+            if (currentLapStartTime != 0) {
+                previousLapTimeMs = lastLapTimeMs; // Move current to previous before updating
+                lastLapTimeMs = crossingTimeMs - currentLapStartTime;
+                
+                // Check for Best Lap
+                if (lastLapTimeMs < bestLapTimeMs) {
+                    bestLapTimeMs = lastLapTimeMs;
+                }
+            }
+            
+            // Set the start time of the next lap to the exact interpolated crossing time
+            currentLapStartTime = crossingTimeMs; 
+            return true;
+        } else {
+            log_d("Lap crossed but in cooldown. Time since last lap: %llu ms", data.timestamp - currentLapStartTime);
+        }
+    }
+    return false;
 }
 
-void LapManager::completeLap(uint32_t now) {
-    // Prevent first "lap" from being the time since boot
-    if (_lastLapMillis == 0) {
-        _lastLapMillis = now;
-        _insideGate = false;
-        log_i("LapTimer: Session Started.");
-        return;
+// 2D Line Segment Intersection Algorithm
+bool LapManager::checkLineCrossing(double Ax, double Ay, double Bx, double By, 
+                                   double Cx, double Cy, double Dx, double Dy, 
+                                   double &fraction) {
+    // Vector from A to B (Trajectory)
+    double s1_x = Bx - Ax;
+    double s1_y = By - Ay;
+    
+    // Vector from C to D (Finish Line Gate)
+    double s2_x = Dx - Cx;
+    double s2_y = Dy - Cy;
+
+    double denom = s1_x * s2_y - s2_x * s1_y;
+    if (denom == 0) return false; // Lines are parallel
+
+    bool denomPositive = denom > 0;
+    double s3_x = Ax - Cx;
+    double s3_y = Ay - Cy;
+
+    double s_num = s1_x * s3_y - s1_y * s3_x;
+    
+    // 1. Did the car cross the infinite line THIS exact frame? (0.0 to 1.0)
+    if ((s_num < 0) == denomPositive || (s_num > denom) == denomPositive) {
+        return false; // Hasn't reached the line, or already passed it
     }
 
-    uint32_t lapMeasured = now - _lastLapMillis;
-
-    // Calculate delta against previous lap BEFORE updating _lastLapTime
-    if (_lastLapTime > 0) {
-        _prevLapTime = _lastLapTime;
-        _deltaLast = (int32_t)lapMeasured - (int32_t)_prevLapTime;
+    // 2. We crossed the line! But was it INSIDE the left/right gate posts?
+    double t_num = s2_x * s3_y - s2_y * s3_x;
+    if ((t_num < 0) == denomPositive || (t_num > denom) == denomPositive) {
+        log_d("Gate Missed! You crossed the line, but OUTSIDE the Left/Right posts.");
+        return false;
     }
 
-    _lastLapTime = lapMeasured;
-    _lastLapMillis = now;
-    _insideGate = false;
-    _minDistInGate = 999.9;
-
-    if (_bestLapTime == 0 || _lastLapTime < _bestLapTime) {
-        _bestLapTime = _lastLapTime;
-        log_i("NEW BEST LAP!");
+    // 3. We are inside the gate! DIRECTION CHECK
+    double dotProduct = s1_x * (Cy - Dy) + s1_y * (Dx - Cx);
+    if (dotProduct <= 0) {
+        log_d("Crossed Backwards! Left/Right points are swapped. (IGNORED FOR DESK TEST)");
+        return false;
     }
 
-    int mins = (_lastLapTime / 60000);
-    int secs = (_lastLapTime % 60000) / 1000;
-    int mms = (_lastLapTime % 1000);
-
-    log_i("LAP COMPLETED: %02d:%02d.%03d", mins, secs, mms);
+    fraction = s_num / denom; // Exact millisecond percentage
+    log_d("VALID CROSSING! Fraction: %.3f", fraction);
+    return true;
 }

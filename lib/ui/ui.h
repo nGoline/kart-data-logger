@@ -35,7 +35,6 @@ LV_IMG_DECLARE( ui_img_1963046887);   // assets/Images/Anim/speed-07.png
 LV_IMG_DECLARE( ui_img_1963060972);   // assets/Images/Anim/speed-08.png
 LV_IMG_DECLARE( ui_img_1963061997);   // assets/Images/Anim/speed-09.png
 LV_IMG_DECLARE( ui_img_1524054327);   // assets/Images/Anim/speed-10.png
-LV_IMG_DECLARE( ui_img_images_needle_png);   // assets/Images/needle.png
 LV_IMG_DECLARE( ui_img_images_center_red_png);   // assets/Images/center_red.png
 LV_IMG_DECLARE( ui_img_images_center_yellow_png);   // assets/Images/center_yellow.png
 LV_IMG_DECLARE( ui_img_images_center_green_png);   // assets/Images/center_green.png
@@ -45,10 +44,32 @@ LV_IMG_DECLARE( ui_img_images_cl_green_png);   // assets/Images/cl_green.png
 LV_IMG_DECLARE( ui_img_images_cr_red_png);   // assets/Images/cr_red.png
 LV_IMG_DECLARE( ui_img_images_cr_yellow_png);   // assets/Images/cr_yellow.png
 LV_IMG_DECLARE( ui_img_images_cr_green_png);   // assets/Images/cr_green.png
+LV_IMG_DECLARE( ui_img_images_left_red_png);   // assets/Images/left_red.png
+LV_IMG_DECLARE( ui_img_images_g1_png);   // assets/Images/g1.png
+LV_IMG_DECLARE( ui_img_images_g2_png);   // assets/Images/g2.png
+LV_IMG_DECLARE( ui_img_images_g3_png);   // assets/Images/g3.png
+LV_IMG_DECLARE( ui_img_images_g4_png);   // assets/Images/g4.png
+LV_IMG_DECLARE( ui_img_images_g5_png);   // assets/Images/g5.png
+LV_IMG_DECLARE( ui_img_images_g6_png);   // assets/Images/g6.png
+LV_IMG_DECLARE( ui_img_images_g7_png);   // assets/Images/g7.png
+LV_IMG_DECLARE( ui_img_images_g8_png);   // assets/Images/g8.png
+LV_IMG_DECLARE( ui_img_images_g9_png);   // assets/Images/g9.png
+LV_IMG_DECLARE( ui_img_images_g10_png);   // assets/Images/g10.png
+LV_IMG_DECLARE( ui_img_images_g11_png);   // assets/Images/g11.png
+LV_IMG_DECLARE( ui_img_images_g12_png);   // assets/Images/g12.png
+LV_IMG_DECLARE( ui_img_images_g13_png);   // assets/Images/g13.png
+LV_IMG_DECLARE( ui_img_images_g14_png);   // assets/Images/g14.png
+LV_IMG_DECLARE( ui_img_images_g15_png);   // assets/Images/g15.png
+LV_IMG_DECLARE( ui_img_images_g16_png);   // assets/Images/g16.png
+LV_IMG_DECLARE( ui_img_images_g17_png);   // assets/Images/g17.png
+LV_IMG_DECLARE( ui_img_images_g18_png);   // assets/Images/g18.png
+LV_IMG_DECLARE( ui_img_images_g19_png);   // assets/Images/g19.png
+LV_IMG_DECLARE( ui_img_images_g20_png);   // assets/Images/g20.png
+LV_IMG_DECLARE( ui_img_images_needle_png);   // assets/Images/needle.png
 
 // FONTS
-LV_FONT_DECLARE( ui_font_DS36);
 LV_FONT_DECLARE( ui_font_DS18);
+LV_FONT_DECLARE( ui_font_DS36);
 
 // UI INIT
 void ui_init(void);
