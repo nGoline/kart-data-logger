@@ -51,6 +51,31 @@ Built using **PlatformIO**.
 * `ElectronicCats/MPU6050`
 * `espressif/esp32-audioI2S`
 
+## 🛰️ GPS Providers (Modular)
+
+The project now uses a modular GPS provider architecture behind `GpsManager`.
+
+### Available providers
+
+* **u-blox provider** (default)
+   * Compile flag: no extra GPS provider flag needed.
+   * Update interval: `200ms` (5Hz).
+* **ATGM336 provider**
+   * Compile flag: `-D GPS_PROVIDER_ATGM336`
+   * Update interval: `100ms` (10Hz).
+
+### How to switch provider
+
+In `platformio.ini`, under `[env:logger] -> build_flags`:
+
+* Keep `USE_FAKE_GPS` commented out to use real GPS hardware.
+* Uncomment `GPS_PROVIDER_ATGM336` to use ATGM336.
+* Leave `GPS_PROVIDER_ATGM336` commented to use u-blox.
+
+### Timing integration
+
+Telemetry task timing is no longer hardcoded to 5Hz. It now reads the interval from `GpsManager::getUpdateIntervalMs()`, so the loop cadence automatically follows the selected provider.
+
 ## 🚀 Setup & Installation
 
 1. Clone this repository.

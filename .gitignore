@@ -7,3 +7,5 @@ logs/*
 backup
 cache
 .DS_Store
+pcb/**/kart_data_logger-backups
+pcb/**/*.lck

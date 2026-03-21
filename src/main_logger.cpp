@@ -18,14 +18,18 @@
 #endif
 
 // --- HARDWARE CONFIG ---
-#define GPS_RX RX
-#define GPS_TX TX
+#define I2S_DIN D0
 #define I2S_BCLK D1
 #define I2S_LRC D2
-#define I2S_DIN D0
-#define BATT_ADC A9
+#define LATCH_PIN D3
 #define I2C_SDA SDA
 #define I2C_SCL SCL
+#define GPS_RX RX
+#define GPS_TX TX
+#define OFF_BUTTON_PIN D8
+#define BATT_ADC A9
+#define HOLD_TIME_MS 3000 // 3 seconds to turn off
+#define CAPACITOR_DISCHARGE_TIME_MS 5000 // Time to wait for the capacitor to discharge before cutting power
 
 // --- GLOBAL MANAGERS ---
 #if defined(USE_FAKE_GPS)
@@ -46,7 +50,11 @@ SemaphoreHandle_t hardwareBusMutex;
 void telemetryTask(void *pvParameters) {
     log_i("Telemetry Task started on Core 1");
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(200); // 5Hz (Matches GPS rate)
+    #if defined(USE_FAKE_GPS)
+    const TickType_t xFrequency = pdMS_TO_TICKS(200);
+    #else
+    const TickType_t xFrequency = pdMS_TO_TICKS(gps.getUpdateIntervalMs());
+    #endif
 
     for (;;) {
         #if defined(USE_FAKE_GPS)
@@ -72,8 +80,7 @@ void telemetryTask(void *pvParameters) {
             xSemaphoreGive(hardwareBusMutex); // Give it back instantly
         }
 
-        // 2. We only want to push a message if we have fresh GPS data
-        // because the GPS is the limiting factor (5Hz)
+        // 2. Push telemetry on the configured GPS cadence.
         TelemetryMsg msg;
         msg.type = MSG_TELEMETRY;
         msg.speedKmph = gps.getSpeed(imuData.gForce, imuData.gyroZ);
@@ -103,7 +110,67 @@ void telemetryTask(void *pvParameters) {
     }
 }
 
+unsigned long buttonPressTime = 0;
+bool isButtonPressed = false;
+bool ignoreInitialBootPress = true; // Prevents turning off immediately if you hold it while booting
+void checkOffButton(){
+    // Remember: Because of Q4, LOW means pressed, HIGH means released
+    bool currentButtonState = (digitalRead(OFF_BUTTON_PIN) == LOW);
+    // --- BUTTON STATE MACHINE ---
+    if (currentButtonState && !isButtonPressed) {
+        log_i("Off button pressed.");
+        // The moment the button goes down
+        buttonPressTime = millis();
+        isButtonPressed = true;
+    } else if (!currentButtonState && isButtonPressed) {
+        log_i("Off button released.");
+        // The moment the button is released
+        isButtonPressed = false;
+        ignoreInitialBootPress = false; // We successfully let go of the button after booting
+    }
+
+    // --- LONG PRESS DETECTION (SHUTDOWN) ---
+    if (isButtonPressed && !ignoreInitialBootPress) {
+        if (millis() - buttonPressTime >= HOLD_TIME_MS) {
+            log_i("Manual Shutdown Triggered! Release button to power off...");
+            
+            // Wait here until the user lets go of the button
+            bool isLedOn = false;
+            while(digitalRead(OFF_BUTTON_PIN) == LOW) {
+                // Toggle the LED every 250ms to indicate shutdown mode
+                digitalWrite(LED_BUILTIN, isLedOn ? LOW : HIGH);
+                isLedOn = !isLedOn;
+                delay(250); 
+            }
+            
+            log_i("Shutting down now.");
+            unsigned long shutdownStart = millis();
+            while(millis() - shutdownStart < CAPACITOR_DISCHARGE_TIME_MS) { // Wait up to 5 seconds for the capacitor to drain
+                // Toggle the LED every 100ms to indicate shutdown mode
+                digitalWrite(LED_BUILTIN, isLedOn ? LOW : HIGH);
+                isLedOn = !isLedOn;
+                delay(100);
+            }
+
+            // Release the latch to commit suicide
+            digitalWrite(LATCH_PIN, LOW); 
+            
+            // Wait for the capacitor to drain and the power to physically cut
+            while(true); 
+        }
+    }
+}
+
+
 void setup() {
+    pinMode(LATCH_PIN, OUTPUT);
+    digitalWrite(LATCH_PIN, HIGH); // Ensure latch is HIGH on boot
+
+    pinMode(OFF_BUTTON_PIN, INPUT_PULLUP);
+
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH);
+
 #if ARDUINO_USB_CDC_ON_BOOT == 1
     // If the board is configured to use USB CDC on boot, we need to wait for the USB connection to be established before we can use Serial.
     delay(2000);
@@ -140,12 +207,12 @@ void setup() {
     // 2. Initialize IMU FIRST (Silent Calibration)
     log_i("Initializing IMU...");
     bool imuStarted = false;
-    if (imu.begin()) { // We removed the custom pins from begin() to use Wire defaults
-        log_i("IMU: OK");
-        imuStarted = true;
-    } else {
-        log_e("IMU: Error");
-    }
+    // if (imu.begin()) { // We removed the custom pins from begin() to use Wire defaults
+    //     log_i("IMU: OK");
+    //     imuStarted = true;
+    // } else {
+    //     log_e("IMU: Error");
+    // }
 
     // 3. Filesystem & Audio
     if (!LittleFS.begin()) {
@@ -171,7 +238,7 @@ void setup() {
         audio.tryQueueAudio("/silence.wav");
         #endif
 
-        while(1); // Halt if IMU is dead
+        //while(1); // Halt if IMU is dead
     }
 
     #if defined(HAS_STARTUP_AUDIO_CUES)
@@ -228,7 +295,7 @@ void setup() {
         audio.tryQueueAudio("/error.wav");
         audio.tryQueueAudio("/gps.wav");
         #endif
-        while(1);
+        //while(1);
     }
     #endif
 
@@ -273,6 +340,9 @@ void setup() {
 }
 
 void loop() {
+    // Check if OFF button is being pressed to shut down the system (Hold for 3 seconds)
+    checkOffButton();
+
 #ifndef SMOKE_TEST
     TelemetryMsg msg;
 

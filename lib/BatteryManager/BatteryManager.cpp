@@ -1,6 +1,6 @@
 #include "BatteryManager.h"
 
-BatteryManager::BatteryManager(uint8_t adcPin, float ratio) : _pin(adcPin), _ratio(ratio) {}
+BatteryManager::BatteryManager(uint8_t adcPin, uint8_t latchPin) : _pin(adcPin), _latchPin(latchPin) {}
 
 void BatteryManager::begin() {
     pinMode(_pin, ANALOG);
@@ -47,6 +47,12 @@ int BatteryManager::getPercentage() {
     // 3. The Math: (Current - Min) / (Max - Min)
     // For your 3.24V reading: (3.24 - 3.20) / (4.1 - 3.2) = 0.04 / 0.9 = ~4.4%
     float percentage = (v - V_MIN) / (V_MAX - V_MIN) * 100.0f;
+
+    if (percentage < 10.0f) {
+        log_w("Battery critically low: %.2fV (%.1f%%)", v, percentage);
+    } else if (percentage < 5.0f) {
+        digitalWrite(_latchPin, LOW); // Release the latch to commit suicide
+    }
     
     return (int)percentage;
 }
