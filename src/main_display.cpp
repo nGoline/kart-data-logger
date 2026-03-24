@@ -8,6 +8,19 @@
 #include "EspNowProtocol.h"
 #include "ui.h"
 
+#if defined(ENABLE_IMU)
+#include "ImuManager.h"
+
+#define I2C_SDA SDA
+#define I2C_SCL SCL
+#endif
+
+#if defined(GPS_PROVIDER_ATGM336)
+const uint8_t expectedPps = 10; // Expected packets per second from the logger (10Hz for ATGM336)
+#else
+const uint8_t expectedPps = 5; // Expected packets per second from the logger (5Hz for u-blox)
+#endif
+
 // --- SPI BUS SHARING LOGIC ---
 SemaphoreHandle_t spiMutex;
 
@@ -24,6 +37,13 @@ LogManager logManager;
 lv_obj_t* spped_bars[10];
 lv_obj_t* gForce_bars[20];
 static uint32_t lv_last_tick = 0;
+
+#if defined(ENABLE_IMU)
+ImuManager imu;
+ImuData latestImuData = {0};
+bool imuReady = false;
+uint32_t lastImuReadMs = 0;
+#endif
 
 // Smoothing & Metrics
 float displaySpeed = 0;
@@ -77,10 +97,17 @@ void syncUI() {
         lv_label_set_text(ui_Label_speed, buf);
 
         // 7. Update GForge Indicator
-        int activeGIndex = (int)((EspNowManager::lastTelemetry.totalGForce - 0.125) / 0.125f);
+        float totalGForce = EspNowManager::lastTelemetry.totalGForce;
+    #if defined(ENABLE_IMU)
+        if (imuReady) {
+            totalGForce = latestImuData.gForce;
+        }
+    #endif
+
+        int activeGIndex = (int)((totalGForce - 0.125f) / 0.125f);
         if (activeGIndex < 0) activeGIndex = 0;
         else if (activeGIndex > 19) activeGIndex = 19;
-        log_d("G-Force: %.2f, Bars: %d", EspNowManager::lastTelemetry.totalGForce, activeGIndex);
+        log_d("G-Force: %.2f, Bars: %d", totalGForce, activeGIndex);
         for (int i = 0; i < 20; i++) {
             if (i < activeGIndex) lv_obj_clear_flag(gForce_bars[i], LV_OBJ_FLAG_HIDDEN);
             else lv_obj_add_flag(gForce_bars[i], LV_OBJ_FLAG_HIDDEN);
@@ -167,15 +194,36 @@ void setup() {
     Serial.begin(115200);
     spiMutex = xSemaphoreCreateMutex();
 
-    // 1. Initialize Display Hardware
+    log_i("--- KART DISPLAY BOOTING ---");
+
+    // 1. Initialize IMU FIRST
+#if defined(ENABLE_IMU)
+    log_i("Initializing IMU...");
+    
+    if (!Wire.begin(I2C_SDA, I2C_SCL, 100000)) {
+        log_e("Failed to initialize I2C on default pins!");
+    }
+
+    if (imu.begin()) { // We removed the custom pins from begin() to use Wire defaults
+        log_i("IMU: OK");
+        imuReady = true;
+    } else {
+        log_e("IMU: Error");
+        // while(1); // Halt if IMU is dead
+    }
+#else
+    log_i("Display IMU disabled (ENABLE_IMU not defined)");
+#endif
+
+    // 2. Initialize Display Hardware
     smartdisplay_init();
     auto disp = lv_display_get_default();
     lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_90);
 
-    // 2. Hijack the Flush Callback for Thread Safety and Bit Endianess Fix
+    // 3. Hijack the Flush Callback for Thread Safety and Bit Endianess Fix
     lv_display_set_flush_cb(disp, my_threaded_flush);
 
-    // 3. Initialize UI Widgets
+    // 4. Initialize UI Widgets
     ui_init();
     spped_bars[0] = ui_speed1; spped_bars[1] = ui_speed2;
     spped_bars[2] = ui_speed3; spped_bars[3] = ui_speed4;
@@ -193,7 +241,7 @@ void setup() {
     gForce_bars[16] = ui_gForce17; gForce_bars[17] = ui_gForce18;
     gForce_bars[18] = ui_gForce19; gForce_bars[19] = ui_gForce20;
 
-    // 4. Initialize Managers
+    // 5. Initialize Managers
     EspNowManager::begin();  // Starts scanning for logger
     logManager.begin(spiMutex); // Starts SD logging task
     
@@ -203,6 +251,26 @@ void setup() {
 
 void loop() {
     uint32_t now = millis();
+
+#if defined(ENABLE_IMU)
+    if (imuReady && (now - lastImuReadMs >= 20)) {
+        latestImuData = imu.update();
+        lastImuReadMs = now;
+
+        // Push IMU immediately so logger can consume a fresh sample
+        // before building its next telemetry frame.
+        ImuFeedbackMsg imuMsg = {};
+        imuMsg.type = MSG_IMU_FEEDBACK;
+        imuMsg.gForceX = latestImuData.accelX;
+        imuMsg.gForceY = latestImuData.accelY;
+        imuMsg.totalGForce = latestImuData.gForce;
+        imuMsg.gyroZ = latestImuData.gyroZ;
+        imuMsg.sampleMs = now;
+
+        EspNowManager::sendImuFeedback(imuMsg);
+    }
+#endif
+
     lv_tick_inc(now - lv_last_tick);
     lv_last_tick = now;
 
@@ -220,10 +288,10 @@ void loop() {
             lv_obj_add_flag(ui_centerGreen, LV_OBJ_FLAG_HIDDEN);
 
             // 2. Unhide the correct one based on the telemetry rate
-            if (pps >= 5) {
+            if (pps >= expectedPps) {
                 // Perfect 5Hz signal
                 lv_obj_clear_flag(ui_centerGreen, LV_OBJ_FLAG_HIDDEN);
-            } else if (pps >= 2) {
+            } else if (pps >= expectedPps / 2) {
                 // Dropping packets, but still connected
                 lv_obj_clear_flag(ui_centerYellow, LV_OBJ_FLAG_HIDDEN);
             } else {

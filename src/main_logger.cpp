@@ -1,10 +1,8 @@
 #include <Arduino.h>
-#include <Wire.h>
 #include <LittleFS.h>
 
 // Modular Libraries
 #include "EspNowManager.h"
-#include "ImuManager.h"
 #include "AudioManager.h"
 #include "BatteryManager.h"
 #include "LapManager.h"
@@ -37,14 +35,41 @@ FakeGps fakeGps;
 #else
 GpsManager gps(GPS_RX, GPS_TX);
 #endif
-ImuManager imu;
+
 AudioManager audio(I2S_BCLK, I2S_LRC, I2S_DIN);
 BatteryManager battery(BATT_ADC, 2.0f);
 LapManager lapTimer;
 
 // --- FREERTOS QUEUE & MUTEX ---
 QueueHandle_t telemetryQueue;
-SemaphoreHandle_t hardwareBusMutex;
+
+#if !defined(USE_FAKE_GPS)
+// Wait for a newer IMU sample than lastUsedCounter. We keep a strict timeout so
+// telemetry cadence remains stable even if a packet is dropped.
+static bool waitForFreshImuSample(uint32_t &lastUsedCounter, ImuFeedbackMsg &imuOut, TickType_t maxWaitTicks) {
+    TickType_t startTick = xTaskGetTickCount();
+
+    while ((xTaskGetTickCount() - startTick) < maxWaitTicks) {
+        uint32_t counter = 0;
+        if (EspNowManager::getLatestImuFeedback(imuOut, counter) && counter > lastUsedCounter) {
+            lastUsedCounter = counter;
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+
+    // Fallback to the latest known sample if a fresh one did not arrive in time.
+    uint32_t counter = 0;
+    if (EspNowManager::getLatestImuFeedback(imuOut, counter)) {
+        lastUsedCounter = counter;
+        return false;
+    }
+
+    imuOut = {};
+    imuOut.type = MSG_IMU_FEEDBACK;
+    return false;
+}
+#endif
 
 // --- TELEMETRY TASK (CORE 1) ---
 void telemetryTask(void *pvParameters) {
@@ -56,6 +81,13 @@ void telemetryTask(void *pvParameters) {
     const TickType_t xFrequency = pdMS_TO_TICKS(gps.getUpdateIntervalMs());
     #endif
 
+#if !defined(USE_FAKE_GPS)
+    uint32_t lastImuCounterUsed = 0;
+    const TickType_t imuWaitBudget = (xFrequency > pdMS_TO_TICKS(10))
+        ? (xFrequency - pdMS_TO_TICKS(10))
+        : pdMS_TO_TICKS(0);
+#endif
+
     for (;;) {
         #if defined(USE_FAKE_GPS)
         static TelemetryMsg msg;
@@ -65,29 +97,26 @@ void telemetryTask(void *pvParameters) {
             log_w("Fake GPS failed to update!");
         }
 
-        if (xSemaphoreTake(hardwareBusMutex, portMAX_DELAY) == pdTRUE) {
-            xSemaphoreGive(hardwareBusMutex); // Give it back instantly
-        }
         #else
         // 1. Update Sensors
         gps.update();
-        ImuData imuData = {0}; // Default to 0 in case we can't read
+        ImuFeedbackMsg imuFeedback = {};
+        bool usedFreshImu = waitForFreshImuSample(lastImuCounterUsed, imuFeedback, imuWaitBudget);
 
-        // --- SAFE IMU READ ---
-        // Wait forever (portMAX_DELAY) until the audio task releases the bus
-        if (xSemaphoreTake(hardwareBusMutex, portMAX_DELAY) == pdTRUE) {
-            imuData = imu.update();
-            xSemaphoreGive(hardwareBusMutex); // Give it back instantly
+        static uint32_t lastImuStaleWarnMs = 0;
+        if (!usedFreshImu && (millis() - lastImuStaleWarnMs > 1000)) {
+            log_w("IMU uplink stale; reusing latest sample for this frame.");
+            lastImuStaleWarnMs = millis();
         }
 
         // 2. Push telemetry on the configured GPS cadence.
         TelemetryMsg msg;
         msg.type = MSG_TELEMETRY;
-        msg.speedKmph = gps.getSpeed(imuData.gForce, imuData.gyroZ);
-        msg.gForceX = imuData.accelX; // Lateral Gs for cornering
-        msg.gForceY = imuData.accelY; // Longitudinal Gs for braking/accel
-        msg.totalGForce = imuData.gForce; // Combined G-Force magnitude for the needle
-        msg.gyroZ = imuData.gyroZ;
+        msg.speedKmph = gps.getSpeed(imuFeedback.totalGForce, imuFeedback.gyroZ);
+        msg.gForceX = imuFeedback.gForceX; // Lateral Gs for cornering
+        msg.gForceY = imuFeedback.gForceY; // Longitudinal Gs for braking/accel
+        msg.totalGForce = imuFeedback.totalGForce; // Combined G-Force magnitude for the needle
+        msg.gyroZ = imuFeedback.gyroZ;
         msg.lat = gps.getLat();
         msg.lng = gps.getLng();
         msg.sats = (uint8_t)gps.getSatellites();
@@ -181,40 +210,9 @@ void setup() {
     unsigned long serialStart = millis();
     while (!Serial && millis() - serialStart < 2000) { delay(10); }
 
-    // --- INITIALIZE MUTEX FIRST ---
-    hardwareBusMutex = xSemaphoreCreateMutex();
-    if (hardwareBusMutex == NULL) {
-        log_e("Failed to create hardware bus mutex!");
-        while(1);
-    }
-
-    // 1. Force a "Clean Slate" for I2C Pins
-    pinMode(I2C_SCL, OUTPUT);
-    for(int i=0; i<9; i++) {
-        digitalWrite(I2C_SCL, LOW); delayMicroseconds(5);
-        digitalWrite(I2C_SCL, HIGH); delayMicroseconds(5);
-    }
-    pinMode(I2C_SDA, INPUT_PULLUP);
-    pinMode(I2C_SCL, INPUT_PULLUP);
-    delay(50); // Reduced delay, 5s is overkill
-
-    if (!Wire.begin(I2C_SDA, I2C_SCL, 100000)) {
-        log_e("Failed to initialize I2C on default pins!");
-    }
-
     log_i("--- KART LOGGER BOOTING ---");
 
-    // 2. Initialize IMU FIRST (Silent Calibration)
-    log_i("Initializing IMU...");
-    bool imuStarted = false;
-    // if (imu.begin()) { // We removed the custom pins from begin() to use Wire defaults
-    //     log_i("IMU: OK");
-    //     imuStarted = true;
-    // } else {
-    //     log_e("IMU: Error");
-    // }
-
-    // 3. Filesystem & Audio
+    // 1. Filesystem & Audio
     if (!LittleFS.begin()) {
         log_e("LittleFS Mount Failed!");
         while(1); // Halt if filesystem is dead
@@ -230,16 +228,6 @@ void setup() {
     audio.tryQueueAudio("/initializing.wav");
     audio.tryQueueAudio("/silence.wav");
     #endif
-
-    if (!imuStarted) {
-        #if defined(HAS_STARTUP_AUDIO_CUES)
-        audio.tryQueueAudio("/error.wav");
-        audio.tryQueueAudio("/imu.wav");
-        audio.tryQueueAudio("/silence.wav");
-        #endif
-
-        //while(1); // Halt if IMU is dead
-    }
 
     #if defined(HAS_STARTUP_AUDIO_CUES)
     audio.tryQueueAudio("/imu.wav");
@@ -334,7 +322,7 @@ void setup() {
     // 8. Initialize the default finish line for lap timing (This can be updated later via a config or command)
     FinishLine defaultFinishLine = {
         -22.771418664405065, -47.14073062561548, // Left point (facing forward on the track)
-        -22.771196111353337, -47.140467744373616    // Right point (facing forward on the track)
+        -22.771196111353337, -47.140467744373616 // Right point (facing forward on the track)
     };
     lapTimer.setFinishLine(defaultFinishLine);
 }

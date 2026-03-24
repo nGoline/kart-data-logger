@@ -1,7 +1,9 @@
 #include "AudioManager.h"
 
 // Bring in the global Mutex from main_logger.cpp
+#if defined(ENABLE_IMU)
 extern SemaphoreHandle_t hardwareBusMutex;
+#endif
 
 // Global semaphore for EOF signals
 SemaphoreHandle_t audioNextSem;
@@ -40,10 +42,14 @@ void AudioManager::audioTask(void* parameter) {
     
     for (;;) {
         // 1. SAFE AUDIO CHUNKING
+        #if defined(ENABLE_IMU)
         if (xSemaphoreTake(hardwareBusMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             self->_audio.loop();
             xSemaphoreGive(hardwareBusMutex);
         }
+        #else
+        self->_audio.loop();
+        #endif
 
         // 2. QUEUE MANAGEMENT
         if (!self->_audio.isRunning()) {
@@ -88,14 +94,18 @@ bool AudioManager::tryQueueAudio(const char* filename) {
 }
 
 void AudioManager::playNextInQueue(String nextFile) {
+    #if defined(ENABLE_IMU)
     if (xSemaphoreTake(hardwareBusMutex, portMAX_DELAY) == pdTRUE) {
+    #endif
         _audio.stopSong(); 
         log_d("Audio: Playing %s", nextFile.c_str());
         
         _audio.connecttoFS(*_fs, nextFile.c_str());
         
+    #if defined(ENABLE_IMU)
         xSemaphoreGive(hardwareBusMutex); 
     }
+    #endif
 }
 
 bool AudioManager::isPlaying() {

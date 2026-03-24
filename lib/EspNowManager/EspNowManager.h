@@ -15,10 +15,20 @@ public:
     static bool newDataAvailable;
     static TelemetryMsg lastTelemetry;
 
+#ifdef IS_LOGGER
+    static ImuFeedbackMsg lastImuFeedback;
+    static uint32_t imuFeedbackCounter;
+    static bool getLatestImuFeedback(ImuFeedbackMsg &msg, uint32_t &counter);
+#endif
+
     static bool begin();
 
 #ifdef IS_LOGGER
     static esp_err_t sendTelemetry(const TelemetryMsg &msg);
+#endif
+
+#ifdef IS_DISPLAY
+    static esp_err_t sendImuFeedback(const ImuFeedbackMsg &msg);
 #endif
 
 private:

@@ -3066,28 +3066,22 @@
 		(uuid "69f62836-2411-4b8a-bdf7-5651bfe07a44")
 	)
 	(junction
-		(at 20.32 77.47)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "6f226435-aec7-43a8-92e9-3b8b07e4e0be")
-	)
-	(junction
 		(at 85.09 64.77)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "7e58d380-4902-42ee-8c99-77ba0884d8be")
 	)
 	(junction
+		(at 20.32 77.47)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "8684b7df-ec4b-4e79-88ed-df607be2f631")
+	)
+	(junction
 		(at 36.83 77.47)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "8a4d6f6a-cecf-4d35-b9b0-1a4d2a0fa75d")
-	)
-	(junction
-		(at 64.77 101.6)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "a727de61-6f33-4179-883b-34370f00caaa")
 	)
 	(junction
 		(at 64.77 81.28)
@@ -3170,10 +3164,6 @@
 	(no_connect
 		(at 165.1 90.17)
 		(uuid "d0be145a-f38f-474d-9e98-a574528b043c")
-	)
-	(no_connect
-		(at 149.86 54.61)
-		(uuid "eb16fbd9-e3f5-4eb8-ba2c-a3247714dcae")
 	)
 	(no_connect
 		(at 121.92 109.22)
@@ -3321,7 +3311,7 @@
 	)
 	(wire
 		(pts
-			(xy 123.19 29.21) (xy 127 29.21)
+			(xy 105.41 76.2) (xy 109.22 76.2)
 		)
 		(stroke
 			(width 0)
@@ -3401,16 +3391,6 @@
 	)
 	(wire
 		(pts
-			(xy 20.32 74.93) (xy 20.32 77.47)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "49f41a2c-9694-4284-9173-ae5fe3633827")
-	)
-	(wire
-		(pts
 			(xy 92.71 113.03) (xy 90.17 113.03)
 		)
 		(stroke
@@ -3421,7 +3401,7 @@
 	)
 	(wire
 		(pts
-			(xy 123.19 31.75) (xy 127 31.75)
+			(xy 105.41 78.74) (xy 109.22 78.74)
 		)
 		(stroke
 			(width 0)
@@ -3431,7 +3411,7 @@
 	)
 	(wire
 		(pts
-			(xy 127 29.21) (xy 127 26.67)
+			(xy 109.22 76.2) (xy 109.22 73.66)
 		)
 		(stroke
 			(width 0)
@@ -3488,6 +3468,16 @@
 			(type default)
 		)
 		(uuid "78aec145-1922-4daa-a5b2-dacd60fbdf78")
+	)
+	(wire
+		(pts
+			(xy 20.32 74.93) (xy 20.32 77.47)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "798828de-7ad8-4891-b844-90e648c6cd52")
 	)
 	(wire
 		(pts
@@ -3598,16 +3588,6 @@
 			(type default)
 		)
 		(uuid "aef665ea-0794-4be4-97e0-875300f1c6e0")
-	)
-	(wire
-		(pts
-			(xy 64.77 101.6) (xy 78.74 101.6)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "b0abc3fc-5c80-4d1d-8100-3c91fb24d9f9")
 	)
 	(wire
 		(pts
@@ -4063,7 +4043,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "1f2334a1-5f4b-4d47-826a-1db3fd553a70")
-		(property "Reference" "R3"
+		(property "Reference" "R5"
 			(at 39.37 80.0099 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4127,7 +4107,7 @@
 		(instances
 			(project "kart_data_logger"
 				(path "/301bd5d2-ee50-4328-bd4b-0bdabdaa4add"
-					(reference "R3")
+					(reference "R5")
 					(unit 1)
 				)
 			)
@@ -4243,7 +4223,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
 			(at 76.2 76.2 0)
 			(hide yes)
 			(show_name no)
@@ -5226,7 +5206,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "7bc90fc8-0537-4f1b-a450-bfc3a3c936da")
-		(property "Reference" "Q3"
+		(property "Reference" "Q4"
 			(at 87.63 54.6099 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5318,7 +5298,7 @@
 		(instances
 			(project "kart_data_logger"
 				(path "/301bd5d2-ee50-4328-bd4b-0bdabdaa4add"
-					(reference "Q3")
+					(reference "Q4")
 					(unit 1)
 				)
 			)
@@ -5494,7 +5474,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "89126d6a-80df-484a-9577-e3880f81400b")
-		(property "Reference" "R5"
+		(property "Reference" "R3"
 			(at 22.86 80.0099 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5558,7 +5538,7 @@
 		(instances
 			(project "kart_data_logger"
 				(path "/301bd5d2-ee50-4328-bd4b-0bdabdaa4add"
-					(reference "R5")
+					(reference "R3")
 					(unit 1)
 				)
 			)
@@ -5598,7 +5578,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:CP_Radial_D12.5mm_P5.00mm"
+		(property "Footprint" "Capacitor_THT:CP_Radial_D6.3mm_P2.50mm"
 			(at 37.7952 109.22 0)
 			(hide yes)
 			(show_name no)
@@ -5657,7 +5637,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "8cb864be-9eb8-433c-a4b6-b789c438adb9")
-		(property "Reference" "R8"
+		(property "Reference" "R7"
 			(at 67.31 58.4199 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5721,7 +5701,7 @@
 		(instances
 			(project "kart_data_logger"
 				(path "/301bd5d2-ee50-4328-bd4b-0bdabdaa4add"
-					(reference "R8")
+					(reference "R7")
 					(unit 1)
 				)
 			)
@@ -5739,7 +5719,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "99792e46-eaed-4504-8aeb-fba5679073e8")
-		(property "Reference" "R7"
+		(property "Reference" "R8"
 			(at 76.2 58.4199 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5803,7 +5783,7 @@
 		(instances
 			(project "kart_data_logger"
 				(path "/301bd5d2-ee50-4328-bd4b-0bdabdaa4add"
-					(reference "R7")
+					(reference "R8")
 					(unit 1)
 				)
 			)
@@ -5890,7 +5870,7 @@
 	)
 	(symbol
 		(lib_id "Connector:Conn_01x02_Pin")
-		(at 118.11 29.21 0)
+		(at 100.33 76.2 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -5901,7 +5881,7 @@
 		(fields_autoplaced yes)
 		(uuid "a017c61a-4d6a-4cb8-852c-b5629cc7ab48")
 		(property "Reference" "J3"
-			(at 118.745 24.13 0)
+			(at 100.965 71.12 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -5911,7 +5891,7 @@
 			)
 		)
 		(property "Value" "Battery"
-			(at 118.745 26.67 0)
+			(at 100.965 73.66 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -5921,7 +5901,7 @@
 			)
 		)
 		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
-			(at 118.11 29.21 0)
+			(at 100.33 76.2 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5932,7 +5912,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 118.11 29.21 0)
+			(at 100.33 76.2 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5943,7 +5923,7 @@
 			)
 		)
 		(property "Description" "Generic connector, single row, 01x02, script generated"
-			(at 118.11 29.21 0)
+			(at 100.33 76.2 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6737,7 +6717,7 @@
 	)
 	(symbol
 		(lib_id "power:+4V")
-		(at 127 26.67 270)
+		(at 109.22 73.66 270)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -6748,7 +6728,7 @@
 		(fields_autoplaced yes)
 		(uuid "f76fe5b4-b5b2-4dfe-970d-eb084ce4bd68")
 		(property "Reference" "#PWR05"
-			(at 123.19 26.67 0)
+			(at 105.41 73.66 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6759,7 +6739,7 @@
 			)
 		)
 		(property "Value" "+4V"
-			(at 130.81 26.6699 90)
+			(at 113.03 73.6599 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -6770,7 +6750,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 127 26.67 0)
+			(at 109.22 73.66 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6781,7 +6761,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 127 26.67 0)
+			(at 109.22 73.66 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6792,7 +6772,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+4V\""
-			(at 127 26.67 0)
+			(at 109.22 73.66 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6816,7 +6796,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 127 31.75 90)
+		(at 109.22 78.74 90)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -6827,7 +6807,7 @@
 		(fields_autoplaced yes)
 		(uuid "fe1a1e6f-ed0e-437e-9734-6a6e1d9ea792")
 		(property "Reference" "#PWR02"
-			(at 133.35 31.75 0)
+			(at 115.57 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6838,7 +6818,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 130.81 31.7499 90)
+			(at 113.03 78.7399 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -6849,7 +6829,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 127 31.75 0)
+			(at 109.22 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6860,7 +6840,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 127 31.75 0)
+			(at 109.22 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6871,7 +6851,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 127 31.75 0)
+			(at 109.22 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)

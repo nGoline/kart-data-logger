@@ -97,6 +97,9 @@ void Atgm336GpsProvider::sendPCAS(char* msgID, char* payload) {
         _serialGps.write('0');
     }
     _serialGps.print(checksum, HEX);
+
+    // send CRLF
+    _serialGps.write("\r\n", 2);
 }
 
 void Atgm336GpsProvider::configureAtgm336(bool hasPendingConfigChanges) {
