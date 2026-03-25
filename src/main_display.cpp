@@ -21,6 +21,8 @@ const uint8_t expectedPps = 10; // Expected packets per second from the logger (
 const uint8_t expectedPps = 5; // Expected packets per second from the logger (5Hz for u-blox)
 #endif
 
+const uint8_t timeBetweenImuUplinkMessages = 10; // We expect a new IMU message at least every 10ms (100Hz), so this is our timeout for "freshness"
+
 // --- SPI BUS SHARING LOGIC ---
 SemaphoreHandle_t spiMutex;
 
@@ -53,6 +55,56 @@ uint32_t lastMessageCount = 0;
 uint32_t pps = 0;
 uint32_t lastPPSUpdate = 0;
 uint8_t helmetBatteryCurrentLevel = 255;
+
+// Error log transfer state (logger -> display -> SD)
+static bool errorLogReceiving = false;
+static uint16_t errorLogExpectedLines = 0;
+static uint16_t errorLogWrittenLines = 0;
+static bool errorLogWriteFailed = false;
+
+static void processIncomingErrorLog() {
+    uint16_t totalLines = 0;
+    if (EspNowManager::consumeErrorLogStart(totalLines)) {
+        errorLogReceiving = true;
+        errorLogExpectedLines = totalLines;
+        errorLogWrittenLines = 0;
+        errorLogWriteFailed = false;
+
+        if (!logManager.beginHelmetErrorLog()) {
+            errorLogWriteFailed = true;
+            log_w("Error log start failed in LogManager.");
+        }
+
+        log_i("Receiving helmet_error.log with %u lines.", totalLines);
+    }
+
+    ErrorLogLineMsg lineMsg = {};
+    while (EspNowManager::popErrorLogLine(lineMsg)) {
+        if (!errorLogReceiving || errorLogWriteFailed) {
+            continue;
+        }
+
+        if (!logManager.appendHelmetErrorLine(lineMsg.lineData)) {
+            errorLogWriteFailed = true;
+            log_w("Error log line write failed in LogManager.");
+            continue;
+        }
+
+        errorLogWrittenLines++;
+    }
+
+    if (EspNowManager::consumeErrorLogEnd(totalLines)) {
+        uint16_t dropped = EspNowManager::getErrorLogDroppedLines();
+        bool acked = errorLogReceiving &&
+                     logManager.finalizeHelmetErrorLogAndAck(errorLogExpectedLines, errorLogWrittenLines, dropped, errorLogWriteFailed);
+
+        if (!acked) {
+            log_w("Error log incomplete. expected=%u written=%u dropped=%u", errorLogExpectedLines, errorLogWrittenLines, dropped);
+        }
+
+        errorLogReceiving = false;
+    }
+}
 
 void syncUI() {
     // 1. Get data from Radio
@@ -96,7 +148,7 @@ void syncUI() {
         snprintf(buf, sizeof(buf), "%.1f", displaySpeed);
         lv_label_set_text(ui_Label_speed, buf);
 
-        // 7. Update GForge Indicator
+        // 7. Update GForce Indicator
         float totalGForce = EspNowManager::lastTelemetry.totalGForce;
     #if defined(ENABLE_IMU)
         if (imuReady) {
@@ -107,7 +159,7 @@ void syncUI() {
         int activeGIndex = (int)((totalGForce - 0.125f) / 0.125f);
         if (activeGIndex < 0) activeGIndex = 0;
         else if (activeGIndex > 19) activeGIndex = 19;
-        log_d("G-Force: %.2f, Bars: %d", totalGForce, activeGIndex);
+
         for (int i = 0; i < 20; i++) {
             if (i < activeGIndex) lv_obj_clear_flag(gForce_bars[i], LV_OBJ_FLAG_HIDDEN);
             else lv_obj_add_flag(gForce_bars[i], LV_OBJ_FLAG_HIDDEN);
@@ -252,8 +304,10 @@ void setup() {
 void loop() {
     uint32_t now = millis();
 
+    processIncomingErrorLog();
+
 #if defined(ENABLE_IMU)
-    if (imuReady && (now - lastImuReadMs >= 20)) {
+    if (imuReady && (now - lastImuReadMs >= timeBetweenImuUplinkMessages)) {
         latestImuData = imu.update();
         lastImuReadMs = now;
 

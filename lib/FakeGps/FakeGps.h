@@ -1,13 +1,14 @@
 #include <FS.h>
 #include <LittleFS.h>
 #include "EspNowProtocol.h"
+#include "LoggingUtils.h"
 
 class FakeGps {
 public:
     bool begin(const char* path) {
         _file = LittleFS.open(path, "r");
         if (!_file) {
-            log_e("Failed to open replay file!");
+            LOG_ERROR("Failed to open replay file!");
             return false;
         }
 

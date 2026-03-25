@@ -7,7 +7,9 @@
 #include "BatteryManager.h"
 #include "LapManager.h"
 #include "VoiceParser.h"
+#include "ErrorLogManager.h"
 #include "EspNowProtocol.h"
+#include "LoggingUtils.h"
 
 #if defined(USE_FAKE_GPS)
 #include "FakeGps.h"
@@ -39,6 +41,7 @@ GpsManager gps(GPS_RX, GPS_TX);
 AudioManager audio(I2S_BCLK, I2S_LRC, I2S_DIN);
 BatteryManager battery(BATT_ADC, 2.0f);
 LapManager lapTimer;
+ErrorLogManager errorLogger;
 
 // --- FREERTOS QUEUE & MUTEX ---
 QueueHandle_t telemetryQueue;
@@ -68,6 +71,45 @@ static bool waitForFreshImuSample(uint32_t &lastUsedCounter, ImuFeedbackMsg &imu
     imuOut = {};
     imuOut.type = MSG_IMU_FEEDBACK;
     return false;
+}
+
+static void monitorGpsDataFlow(bool gotFreshGpsSentence) {
+    static uint32_t lastGoodGpsSentenceMs = 0;
+    static uint32_t lastGpsTimeoutLogMs = 0;
+    static bool gpsWasTimedOut = false;
+
+    const uint32_t now = millis();
+    const uint32_t startupGraceMs = 5000;
+    const uint32_t gpsTimeoutMs = 3000;
+    const uint32_t repeatLogMs = 30000;
+
+    if (gotFreshGpsSentence) {
+        lastGoodGpsSentenceMs = now;
+        if (gpsWasTimedOut) {
+            log_i("GPS data stream recovered.");
+            gpsWasTimedOut = false;
+        }
+        return;
+    }
+
+    if (now < startupGraceMs) {
+        return;
+    }
+
+    if (lastGoodGpsSentenceMs == 0) {
+        if (now - lastGpsTimeoutLogMs >= repeatLogMs) {
+            LOG_ERROR("GPS data timeout: no valid sentences received since boot.");
+            lastGpsTimeoutLogMs = now;
+            gpsWasTimedOut = true;
+        }
+        return;
+    }
+
+    if ((now - lastGoodGpsSentenceMs) >= gpsTimeoutMs && (now - lastGpsTimeoutLogMs) >= repeatLogMs) {
+        LOG_ERROR_FORMATTED("GPS data timeout: no valid sentence for %lu ms.", (unsigned long)(now - lastGoodGpsSentenceMs));
+        lastGpsTimeoutLogMs = now;
+        gpsWasTimedOut = true;
+    }
 }
 #endif
 
@@ -99,7 +141,8 @@ void telemetryTask(void *pvParameters) {
 
         #else
         // 1. Update Sensors
-        gps.update();
+        bool gotFreshGpsSentence = gps.update();
+        monitorGpsDataFlow(gotFreshGpsSentence);
         ImuFeedbackMsg imuFeedback = {};
         bool usedFreshImu = waitForFreshImuSample(lastImuCounterUsed, imuFeedback, imuWaitBudget);
 
@@ -123,6 +166,7 @@ void telemetryTask(void *pvParameters) {
         msg.hasFix = gps.hasFix() ? 1 : 0;
         msg.timestamp = gps.getEpochMs();
         msg.helmetBattery = (uint8_t)battery.getPercentage();
+        msg.usedFreshImu = usedFreshImu;
         #endif
 
         // 3. Send to Queue (Don't block if full, just drop the oldest)
@@ -161,7 +205,7 @@ void checkOffButton(){
     // --- LONG PRESS DETECTION (SHUTDOWN) ---
     if (isButtonPressed && !ignoreInitialBootPress) {
         if (millis() - buttonPressTime >= HOLD_TIME_MS) {
-            log_i("Manual Shutdown Triggered! Release button to power off...");
+            LOG_ERROR("Manual Shutdown Triggered! Release button to power off!");
             
             // Wait here until the user lets go of the button
             bool isLedOn = false;
@@ -172,7 +216,7 @@ void checkOffButton(){
                 delay(250); 
             }
             
-            log_i("Shutting down now.");
+            LOG_ERROR("Shutting down now.");
             unsigned long shutdownStart = millis();
             while(millis() - shutdownStart < CAPACITOR_DISCHARGE_TIME_MS) { // Wait up to 5 seconds for the capacitor to drain
                 // Toggle the LED every 100ms to indicate shutdown mode
@@ -182,10 +226,10 @@ void checkOffButton(){
             }
 
             // Release the latch to commit suicide
-            digitalWrite(LATCH_PIN, LOW); 
-            
-            // Wait for the capacitor to drain and the power to physically cut
-            while(true); 
+            digitalWrite(LATCH_PIN, LOW);
+
+            // If we've made it here, we're must be connected to a usb cable for charging. Let's just go to deep sleep and wait for the power to cut instead of busy looping and draining the battery.
+            esp_deep_sleep_start();
         }
     }
 }
@@ -214,24 +258,23 @@ void setup() {
 
     // 1. Filesystem & Audio
     if (!LittleFS.begin()) {
-        log_e("LittleFS Mount Failed!");
+        LOG_ERROR("LittleFS Mount Failed!");
         while(1); // Halt if filesystem is dead
     }
     log_i("LittleFS Mounted. Waking up Audio...");
+    
+    // Initialize Error Logger
+    if (!errorLogger.begin()) {
+        LOG_ERROR("ErrorLogManager failed to initialize!");
+    }
         
     // Start the audio engine on Core 0
-    audio.begin(LittleFS, 15); 
+    audio.begin(LittleFS, 5); 
     
     #if defined(HAS_STARTUP_AUDIO_CUES)
     audio.tryQueueAudio("/startup.wav");    
     audio.tryQueueAudio("/wait.wav");
     audio.tryQueueAudio("/initializing.wav");
-    audio.tryQueueAudio("/silence.wav");
-    #endif
-
-    #if defined(HAS_STARTUP_AUDIO_CUES)
-    audio.tryQueueAudio("/imu.wav");
-    audio.tryQueueAudio("/ready.wav");
     audio.tryQueueAudio("/silence.wav");
     #endif
 
@@ -259,6 +302,30 @@ void setup() {
         audio.tryQueueAudio("/ready.wav");
         audio.tryQueueAudio("/silence.wav");
         #endif
+        
+        // If there's a stored error log, transmit it to the display
+        if (errorLogger.logFileExists()) {
+            log_i("Found stored error log. Transmitting to display...");
+            #if defined(HAS_STARTUP_AUDIO_CUES)
+            audio.tryQueueAudio("/initializing.wav");
+            audio.tryQueueAudio("/wait.wav");
+            #endif
+            
+            if (errorLogger.sendStoredLogsToDisplay()) {
+                log_i("Error log transmitted successfully.");
+                // Delete only after display confirms write via MSG_ERROR_LOG_ACK.
+                errorLogger.deleteLogFile();
+                
+                #if defined(HAS_STARTUP_AUDIO_CUES)
+                audio.tryQueueAudio("/ready.wav");
+                audio.tryQueueAudio("/silence.wav");
+                #endif
+            } else {
+                log_w("Failed to transmit error log to display.");
+            }
+        } else {
+            log_d("No stored error log found. Continuing with normal boot.");
+        }
     }
 
 #ifndef SMOKE_TEST
@@ -271,26 +338,25 @@ void setup() {
 
     #if defined(USE_FAKE_GPS)
     if (!fakeGps.begin("/real_car_ride.csv")) {
-        log_e("Failed to start Fake GPS!");
+        LOG_ERROR("Failed to start Fake GPS!");
         while(1);
     } else {
         log_i("Fake GPS Initialized with replay file.");
     }
     #else
     if (!gps.begin()) {
-        log_e("Failed to start GPS!");
+        LOG_ERROR("Failed to start GPS!");
         #if defined(HAS_STARTUP_AUDIO_CUES)
         audio.tryQueueAudio("/error.wav");
         audio.tryQueueAudio("/gps.wav");
         #endif
-        //while(1);
     }
     #endif
 
-    // 7. Create Telemetry Queue (Holds up to 10 messages)
-    telemetryQueue = xQueueCreate(10, sizeof(TelemetryMsg));
+    // 7. Create Telemetry Queue (Holds up to 20 messages)
+    telemetryQueue = xQueueCreate(20, sizeof(TelemetryMsg));
     if (telemetryQueue == NULL) {
-        log_e("Error creating the queue");
+        LOG_ERROR("Error creating the queue");
     }
 
     log_i("Setup Complete. Waiting for boot audio to finish...");
@@ -331,6 +397,29 @@ void loop() {
     // Check if OFF button is being pressed to shut down the system (Hold for 3 seconds)
     checkOffButton();
 
+    // --- IMU UPLINK PPS COUNTER ---
+#if CORE_DEBUG_LEVEL == ARDUHAL_LOG_LEVEL_DEBUG
+    static uint32_t lastSeenImuCounter = 0;
+    static uint32_t lastPPSUpdateMs = 0;
+    static uint32_t imuPpsThisSecond = 0;
+    uint32_t now = millis();
+    if (now - lastPPSUpdateMs >= 1000) {
+        log_i("IMU Uplink: %d packets/sec", imuPpsThisSecond);
+        imuPpsThisSecond = 0;
+        lastPPSUpdateMs = now;
+    }
+
+    // Count new IMU packets received since last loop iteration
+    ImuFeedbackMsg discardMsg = {};
+    uint32_t currentImuCounter = 0;
+    if (EspNowManager::getLatestImuFeedback(discardMsg, currentImuCounter)) {
+        if (currentImuCounter > lastSeenImuCounter) {
+            imuPpsThisSecond += (currentImuCounter - lastSeenImuCounter);
+            lastSeenImuCounter = currentImuCounter;
+        }
+    }
+#endif
+
 #ifndef SMOKE_TEST
     TelemetryMsg msg;
 
@@ -342,7 +431,7 @@ void loop() {
 
         // --- THE GPS LOCK STATE MACHINE ---
         static bool isSystemReady = false;
-        static int lastSats = -1;
+        // static int lastSats = -1;
         static uint32_t lastAnnounceTime = 0;
 
         if (!isSystemReady) {
@@ -361,7 +450,7 @@ void loop() {
             } else {
                 // STILL SEARCHING: Announce satellites if the count changed 
                 // AND at least 30 seconds have passed since the last announcement.
-                if ((millis() - lastAnnounceTime > 30000)) { //msg.sats != lastSats && 
+                if (millis() - lastAnnounceTime > 30000) { // msg.sats != lastSats && 
                     log_i("Searching... Satellites: %d", msg.sats);
                     
                     #if defined(HAS_STARTUP_AUDIO_CUES)
@@ -371,7 +460,7 @@ void loop() {
                     audio.tryQueueAudio("/silence.wav");
                     #endif
                     
-                    lastSats = msg.sats;
+                    // lastSats = msg.sats;
                     lastAnnounceTime = millis();
                 }
             }

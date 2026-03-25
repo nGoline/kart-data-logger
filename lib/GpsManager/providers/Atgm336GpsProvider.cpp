@@ -16,7 +16,7 @@ bool Atgm336GpsProvider::begin() {
     _serialGps.begin(115200, SERIAL_8N1, _rxPin, _txPin);
 
     uint32_t startCheck = millis();
-    while (millis() - startCheck < 1500) {
+    while (millis() - startCheck < 2000) {
         if (_serialGps.available() > 0 && _serialGps.read() == '$') {
             foundBaud = true;
             log_i("ATGM336 module detected at 115200 baud.");
@@ -32,7 +32,7 @@ bool Atgm336GpsProvider::begin() {
         _serialGps.begin(9600, SERIAL_8N1, _rxPin, _txPin);
 
         startCheck = millis();
-        while (millis() - startCheck < 1500) {
+        while (millis() - startCheck < 2000) {
             if (_serialGps.available() > 0 && _serialGps.read() == '$') {
                 foundBaud = true;
                 log_i("ATGM336 module detected at 9600 baud. Upgrading to 115200...");
@@ -52,7 +52,7 @@ bool Atgm336GpsProvider::begin() {
     }
 
     if (!foundBaud) {
-        log_e("Error: ATGM336 module not responding at 115200 or 9600 baud.");
+        LOG_ERROR("Error: ATGM336 module not responding at 115200 or 9600 baud.");
         return false;
     }
 

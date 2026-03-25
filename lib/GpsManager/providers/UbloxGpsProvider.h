@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <TinyGPS++.h>
+#include "LoggingUtils.h"
 
 #include "../IGpsProvider.h"
 

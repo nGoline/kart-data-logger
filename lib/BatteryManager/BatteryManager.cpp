@@ -1,4 +1,5 @@
 #include "BatteryManager.h"
+#include "LoggingUtils.h"
 
 BatteryManager::BatteryManager(uint8_t adcPin, uint8_t latchPin) : _pin(adcPin), _latchPin(latchPin) {}
 
@@ -51,6 +52,7 @@ int BatteryManager::getPercentage() {
     if (percentage < 10.0f) {
         log_w("Battery critically low: %.2fV (%.1f%%)", v, percentage);
     } else if (percentage < 5.0f) {
+        LOG_ERROR_FORMATTED("Battery dangerously low: %.2fV (%.1f%%). Initiating shutdown!", v, percentage);
         digitalWrite(_latchPin, LOW); // Release the latch to commit suicide
     }
     

@@ -1,10 +1,28 @@
 #include "EspNowManager.h"
 
+#include <WiFi.h>
+#include <esp_wifi.h>
+
+#ifdef IS_DISPLAY
+#include <freertos/queue.h>
+#endif
+
 bool EspNowManager::newDataAvailable = false;
 TelemetryMsg EspNowManager::lastTelemetry = {};
 #ifdef IS_LOGGER
 ImuFeedbackMsg EspNowManager::lastImuFeedback = {};
 uint32_t EspNowManager::imuFeedbackCounter = 0;
+static volatile bool s_errorLogAckReceived = false;
+static volatile uint16_t s_errorLogAckLines = 0;
+#endif
+
+#ifdef IS_DISPLAY
+static QueueHandle_t s_errorLogLineQueue = nullptr;
+static volatile bool s_errorLogStartEvent = false;
+static volatile bool s_errorLogEndEvent = false;
+static volatile uint16_t s_errorLogStartLines = 0;
+static volatile uint16_t s_errorLogEndLines = 0;
+static volatile uint16_t s_errorLogDroppedLines = 0;
 #endif
 
 bool EspNowManager::begin() {
@@ -51,6 +69,16 @@ bool EspNowManager::begin() {
     }
     log_i("Broadcast peer added successfully.");
 
+#ifdef IS_DISPLAY
+    if (s_errorLogLineQueue == nullptr) {
+        s_errorLogLineQueue = xQueueCreate(24, sizeof(ErrorLogLineMsg));
+        if (s_errorLogLineQueue == nullptr) {
+            log_e("Failed to create error log line queue.");
+            return false;
+        }
+    }
+#endif
+
     return true;
 }
 
@@ -74,6 +102,51 @@ esp_err_t EspNowManager::sendImuFeedback(const ImuFeedbackMsg &msg) {
     }
     return res;
 }
+
+esp_err_t EspNowManager::sendErrorLogAck(uint16_t linesWritten) {
+    ErrorLogControlMsg msg = {};
+    msg.type = MSG_ERROR_LOG_ACK;
+    msg.totalLines = linesWritten;
+
+    uint8_t bcastAddr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    esp_err_t res = esp_now_send(bcastAddr, (uint8_t *)&msg, sizeof(msg));
+    if (res != ESP_OK) {
+        log_w("Error log ACK send failed! Error code: %d", res);
+    }
+    return res;
+}
+
+bool EspNowManager::consumeErrorLogStart(uint16_t &totalLines) {
+    if (!s_errorLogStartEvent) {
+        return false;
+    }
+
+    totalLines = s_errorLogStartLines;
+    s_errorLogStartEvent = false;
+    return true;
+}
+
+bool EspNowManager::consumeErrorLogEnd(uint16_t &totalLines) {
+    if (!s_errorLogEndEvent) {
+        return false;
+    }
+
+    totalLines = s_errorLogEndLines;
+    s_errorLogEndEvent = false;
+    return true;
+}
+
+bool EspNowManager::popErrorLogLine(ErrorLogLineMsg &msg) {
+    if (s_errorLogLineQueue == nullptr) {
+        return false;
+    }
+
+    return xQueueReceive(s_errorLogLineQueue, &msg, 0) == pdTRUE;
+}
+
+uint16_t EspNowManager::getErrorLogDroppedLines() {
+    return s_errorLogDroppedLines;
+}
 #endif
 
 #ifdef IS_LOGGER
@@ -86,6 +159,25 @@ bool EspNowManager::getLatestImuFeedback(ImuFeedbackMsg &msg, uint32_t &counter)
     counter = imuFeedbackCounter;
     return true;
 }
+
+void EspNowManager::resetErrorLogAckState() {
+    s_errorLogAckReceived = false;
+    s_errorLogAckLines = 0;
+}
+
+bool EspNowManager::waitForErrorLogAck(uint16_t expectedLines, uint32_t timeoutMs, uint16_t &ackLinesOut) {
+    uint32_t start = millis();
+    while ((millis() - start) < timeoutMs) {
+        if (s_errorLogAckReceived) {
+            ackLinesOut = s_errorLogAckLines;
+            return s_errorLogAckLines == expectedLines;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    ackLinesOut = 0;
+    return false;
+}
 #endif
 
 // Shared Receiver Logic
@@ -94,6 +186,10 @@ void EspNowManager::onDataRecv(const esp_now_recv_info_t *info, const uint8_t *d
 #else
 void EspNowManager::onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
 #endif
+    if (len <= 0) {
+        return;
+    }
+
     if (len >= (int)sizeof(TelemetryMsg) && data[0] == MSG_TELEMETRY) {
         memcpy(&lastTelemetry, data, sizeof(TelemetryMsg));
         newDataAvailable = true;
@@ -101,6 +197,43 @@ void EspNowManager::onDataRecv(const uint8_t *mac, const uint8_t *data, int len)
 #ifdef IS_LOGGER
         memcpy(&lastImuFeedback, data, sizeof(ImuFeedbackMsg));
         imuFeedbackCounter++;
+#endif
+    } else if (len >= (int)sizeof(ErrorLogControlMsg) && data[0] == MSG_ERROR_LOG_ACK) {
+#ifdef IS_LOGGER
+        ErrorLogControlMsg ack = {};
+        memcpy(&ack, data, sizeof(ErrorLogControlMsg));
+        s_errorLogAckLines = ack.totalLines;
+        s_errorLogAckReceived = true;
+        log_i("Received error log ACK for %u lines.", ack.totalLines);
+#endif
+    } else if (len >= (int)sizeof(ErrorLogControlMsg) && data[0] == MSG_ERROR_LOG_START) {
+#ifdef IS_DISPLAY
+        ErrorLogControlMsg start = {};
+        memcpy(&start, data, sizeof(ErrorLogControlMsg));
+        if (s_errorLogLineQueue != nullptr) {
+            xQueueReset(s_errorLogLineQueue);
+        }
+        s_errorLogDroppedLines = 0;
+        s_errorLogStartLines = start.totalLines;
+        s_errorLogStartEvent = true;
+        s_errorLogEndEvent = false;
+        log_i("Error log transfer started (%u lines).", start.totalLines);
+#endif
+    } else if (len >= (int)sizeof(ErrorLogLineMsg) && data[0] == MSG_ERROR_LOG_LINE) {
+#ifdef IS_DISPLAY
+        ErrorLogLineMsg lineMsg = {};
+        memcpy(&lineMsg, data, sizeof(ErrorLogLineMsg));
+        if (s_errorLogLineQueue == nullptr || xQueueSend(s_errorLogLineQueue, &lineMsg, 0) != pdTRUE) {
+            s_errorLogDroppedLines++;
+        }
+#endif
+    } else if (len >= (int)sizeof(ErrorLogControlMsg) && data[0] == MSG_ERROR_LOG_END) {
+#ifdef IS_DISPLAY
+        ErrorLogControlMsg end = {};
+        memcpy(&end, data, sizeof(ErrorLogControlMsg));
+        s_errorLogEndLines = end.totalLines;
+        s_errorLogEndEvent = true;
+        log_i("Error log transfer ended (%u lines expected).", end.totalLines);
 #endif
     } else {
         log_w("Received non-telemetry packet. Type: %d, Len: %d", data[0], len);

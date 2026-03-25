@@ -78,7 +78,7 @@ bool UbloxGpsProvider::begin() {
     }
 
     if (!foundBaud) {
-        log_e("Error: u-blox module not responding at 115200 or 9600 baud.");
+        LOG_ERROR("Error: u-blox module not responding at 115200 or 9600 baud.");
         return false;
     }
 
