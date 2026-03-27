@@ -30,9 +30,13 @@ public:
 private:
     SemaphoreHandle_t _spiMutex;
     bool _sdAvailable = false;
+    bool _clockSynced = false;
     String _currentFileName;
     
     void createNewFile();
+    bool hasValidGpsTime(const TelemetryMsg &msg) const;
+    bool syncClockFromTelemetry(const TelemetryMsg &msg);
+    bool ensureCurrentLogFile(const TelemetryMsg &msg);
 };
 
 #endif

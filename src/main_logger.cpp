@@ -269,7 +269,7 @@ void setup() {
     }
         
     // Start the audio engine on Core 0
-    audio.begin(LittleFS, 5); 
+    audio.begin(LittleFS, 10); 
     
     #if defined(HAS_STARTUP_AUDIO_CUES)
     audio.tryQueueAudio("/startup.wav");    
@@ -387,8 +387,8 @@ void setup() {
 
     // 8. Initialize the default finish line for lap timing (This can be updated later via a config or command)
     FinishLine defaultFinishLine = {
-        -22.771418664405065, -47.14073062561548, // Left point (facing forward on the track)
-        -22.771196111353337, -47.140467744373616 // Right point (facing forward on the track)
+        -23.60488969289942, -46.836226585404766, // Left point (facing forward on the track)
+        -23.604937937091048, -46.836415977188466 // Right point (facing forward on the track)
     };
     lapTimer.setFinishLine(defaultFinishLine);
 }
@@ -464,41 +464,43 @@ void loop() {
                     lastAnnounceTime = millis();
                 }
             }
-            
-            // Return early! This drops the raw telemetry data and prevents 
-            // ESP-NOW broadcasting and lap timing until we have a real fix.
-            return; 
-        }
 
-        // ==========================================
-        // STATE: SYSTEM READY (NORMAL RUNNING)
-        // ==========================================
+            static uint32_t lastNoFixInfoMs = 0;
+            if (millis() - lastNoFixInfoMs > 5000) {
+                log_i("No GPS fix yet; telemetry/battery broadcast remains active.");
+                lastNoFixInfoMs = millis();
+            }
+        } else {
+            // ==========================================
+            // STATE: SYSTEM READY (NORMAL RUNNING)
+            // ==========================================
 
-        // 2. Check for Lap Completion
-        if (lapTimer.processTelemetry(msg)) {
-            log_d("Lap Completed!");
-            uint64_t lt = lapTimer.getLastLapTime();
-            uint64_t bt = lapTimer.getBestLapTime();
-            uint64_t pt = lapTimer.getPreviousLapTime();
-            int minutes = lt / 60000;
-            int seconds = (lt % 60000) / 1000;
-            int millis = lt % 1000;
-            bool isBest = (lt == bt && bt != 0);
+            // 2. Check for Lap Completion
+            if (lapTimer.processTelemetry(msg)) {
+                log_d("Lap Completed!");
+                uint64_t lt = lapTimer.getLastLapTime();
+                uint64_t bt = lapTimer.getBestLapTime();
+                uint64_t pt = lapTimer.getPreviousLapTime();
+                int minutes = lt / 60000;
+                int seconds = (lt % 60000) / 1000;
+                int millis = lt % 1000;
+                bool isBest = (lt == bt && bt != 0);
 
-            // --- ANNOUNCE LAP + DELTA ---
-            VoiceParser::announceLapTime(audio, minutes, seconds, millis, isBest);
+                // --- ANNOUNCE LAP + DELTA ---
+                VoiceParser::announceLapTime(audio, minutes, seconds, millis, isBest);
 
-            if (pt > 0) { // Don't announce a delta on the first lap   
-                // Calculate Delta (Difference from previous lap)
-                // We use the absolute value for the number, then add the direction
-                int32_t delta = (int32_t)lt - (int32_t)pt;
-                int deltaMinutes = abs(delta / 60000);
-                int deltaSeconds = abs((delta % 60000) / 1000);
-                int deltaMillis = abs(delta % 1000);
+                if (pt > 0) { // Don't announce a delta on the first lap
+                    // Calculate Delta (Difference from previous lap)
+                    // We use the absolute value for the number, then add the direction
+                    int32_t delta = (int32_t)lt - (int32_t)pt;
+                    int deltaMinutes = abs(delta / 60000);
+                    int deltaSeconds = abs((delta % 60000) / 1000);
+                    int deltaMillis = abs(delta % 1000);
 
-                if (deltaMinutes > 0 || deltaSeconds > 0 || deltaMillis > 0) {
-                    audio.tryQueueAudio("/silence.wav");
-                    VoiceParser::announceDeltaTime(audio, deltaMinutes, deltaSeconds, deltaMillis, delta <= 0);
+                    if (deltaMinutes > 0 || deltaSeconds > 0 || deltaMillis > 0) {
+                        audio.tryQueueAudio("/silence.wav");
+                        VoiceParser::announceDeltaTime(audio, deltaMinutes, deltaSeconds, deltaMillis, delta <= 0);
+                    }
                 }
             }
         }

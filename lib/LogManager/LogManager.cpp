@@ -1,6 +1,12 @@
 #include "LogManager.h"
 #include "EspNowManager.h"
 
+#include <sys/time.h>
+
+namespace {
+constexpr uint64_t kMinValidGpsEpochMs = 1609459200000ULL; // 2021-01-01 UTC
+}
+
 QueueHandle_t LogManager::logQueue = NULL;
 
 LogManager::LogManager() {}
@@ -27,7 +33,6 @@ bool LogManager::begin(SemaphoreHandle_t spiMutex) {
         } else {
             log_i("LogManager: SD Card Initialized.");
             _sdAvailable = true;
-            createNewFile();
         }
         xSemaphoreGive(_spiMutex);
     }
@@ -133,6 +138,52 @@ void LogManager::createNewFile() {
     }
 }
 
+bool LogManager::hasValidGpsTime(const TelemetryMsg &msg) const {
+    return msg.sats > 0 && msg.timestamp >= kMinValidGpsEpochMs;
+}
+
+bool LogManager::syncClockFromTelemetry(const TelemetryMsg &msg) {
+    if (!hasValidGpsTime(msg)) {
+        return false;
+    }
+
+    struct timeval tv = {};
+    tv.tv_sec = (time_t)(msg.timestamp / 1000ULL);
+    tv.tv_usec = (suseconds_t)((msg.timestamp % 1000ULL) * 1000ULL);
+
+    if (settimeofday(&tv, nullptr) != 0) {
+        log_w("LogManager: failed to sync system time from GPS epoch %llu.", msg.timestamp);
+        return false;
+    }
+
+    if (!_clockSynced) {
+        log_i("LogManager: system time synced from GPS.");
+    }
+    _clockSynced = true;
+    return true;
+}
+
+bool LogManager::ensureCurrentLogFile(const TelemetryMsg &msg) {
+    if (!_sdAvailable) {
+        return false;
+    }
+
+    if (!_currentFileName.isEmpty()) {
+        return true;
+    }
+
+    if (!hasValidGpsTime(msg)) {
+        return false;
+    }
+
+    if (!syncClockFromTelemetry(msg)) {
+        return false;
+    }
+
+    createNewFile();
+    return !_currentFileName.isEmpty();
+}
+
 void LogManager::task(void* param) {
     LogManager* self = (LogManager*)param;
     TelemetryMsg msg;
@@ -140,6 +191,8 @@ void LogManager::task(void* param) {
     for (;;) {
         if (xQueueReceive(logQueue, &msg, portMAX_DELAY)) {
             if (!self->_sdAvailable) continue;
+            if (msg.sats == 0) continue;
+            if (!self->ensureCurrentLogFile(msg)) continue;
 
             // Wait for SPI bus to be free from LVGL
             if (xSemaphoreTake(self->_spiMutex, pdMS_TO_TICKS(500))) {

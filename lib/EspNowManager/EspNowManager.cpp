@@ -190,8 +190,17 @@ void EspNowManager::onDataRecv(const uint8_t *mac, const uint8_t *data, int len)
         return;
     }
 
-    if (len >= (int)sizeof(TelemetryMsg) && data[0] == MSG_TELEMETRY) {
-        memcpy(&lastTelemetry, data, sizeof(TelemetryMsg));
+    if (data[0] == MSG_TELEMETRY) {
+        static bool warnedTelemetrySizeMismatch = false;
+        if (!warnedTelemetrySizeMismatch && len != (int)sizeof(TelemetryMsg)) {
+            log_w("Telemetry size mismatch: rx=%d local=%u", len, (unsigned)sizeof(TelemetryMsg));
+            warnedTelemetrySizeMismatch = true;
+        }
+
+        TelemetryMsg tmp = {};
+        size_t copyLen = (len < (int)sizeof(TelemetryMsg)) ? (size_t)len : sizeof(TelemetryMsg);
+        memcpy(&tmp, data, copyLen);
+        lastTelemetry = tmp;
         newDataAvailable = true;
     } else if (len >= (int)sizeof(ImuFeedbackMsg) && data[0] == MSG_IMU_FEEDBACK) {
 #ifdef IS_LOGGER

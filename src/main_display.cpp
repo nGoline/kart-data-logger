@@ -270,7 +270,7 @@ void setup() {
     // 2. Initialize Display Hardware
     smartdisplay_init();
     auto disp = lv_display_get_default();
-    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_90);
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
 
     // 3. Hijack the Flush Callback for Thread Safety and Bit Endianess Fix
     lv_display_set_flush_cb(disp, my_threaded_flush);
@@ -355,7 +355,7 @@ void loop() {
         }
 
         lastPPSUpdate = now;
-        Serial.printf("Incoming Rate: %d pkts/sec\n", pps);
+        log_i("Incoming Rate: %d pkts/sec\n", pps);
     }
 
     // Update UI Elements

@@ -35,6 +35,9 @@ struct __attribute__((packed)) TelemetryMsg {
     bool usedFreshImu;
 };
 
+static_assert(sizeof(float) == 4, "Telemetry protocol requires 4-byte float");
+static_assert(sizeof(uint64_t) == 8, "Telemetry protocol requires 8-byte uint64_t");
+
 // Display -> Logger IMU uplink packet.
 // The logger folds this sample into the next telemetry frame so logs can
 // capture the exact IMU values used by speed filtering.
