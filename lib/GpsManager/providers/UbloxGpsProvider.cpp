@@ -101,6 +101,10 @@ bool UbloxGpsProvider::begin() {
     return true;
 }
 
+void UbloxGpsProvider::end() {
+    _serialGps.end();
+}
+
 void UbloxGpsProvider::configureUblox() {
     // CFG-RATE: 5Hz (200ms)
     const uint8_t set5Hz[] = {

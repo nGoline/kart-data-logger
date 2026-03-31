@@ -63,6 +63,10 @@ bool Atgm336GpsProvider::begin() {
     return true;
 }
 
+void Atgm336GpsProvider::end() {
+    _serialGps.end();
+}
+
 void Atgm336GpsProvider::sendPCAS(char* msgID, char* payload) {
     const char* prefix = "PCAS";
     const char separator = ',';

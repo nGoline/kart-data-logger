@@ -12,35 +12,73 @@ SemaphoreHandle_t audioNextSem;
 void audio_eof_wav(const char *info) { if(audioNextSem) xSemaphoreGive(audioNextSem); }
 
 AudioManager::AudioManager(int bclkPin, int lrcPin, int dinPin) 
-    : _bclk(bclkPin), _lrc(lrcPin), _din(dinPin) {
+    : _bclk(bclkPin), _lrc(lrcPin), _din(dinPin), _audioTaskHandle(NULL), _stopAudioTask(false) {
     _mutex = xSemaphoreCreateMutex();
     audioNextSem = xSemaphoreCreateBinary();
 }
 
-bool AudioManager::begin(FS &fs, int volume) {
+bool AudioManager::begin(LittleFSFS &fs, int volume) {
     _fs = &fs;
     _audio.setPinout(_bclk, _lrc, _din);
     _audio.setVolume(volume);
 
     log_i("Audio: I2S Initialized (BCLK:%d, LRC:%d, DIN:%d)", _bclk, _lrc, _din);
 
+    _stopAudioTask = false;
+    _audioTaskHandle = NULL;
     xTaskCreatePinnedToCore(
         this->audioTask,
         "AudioTask",
         8192,
         this,
-        2, 
-        NULL,
+        2,
+        &_audioTaskHandle,
         0  // Pin to Core 0 to avoid jitter from UI/GPS logic on Core 1
     );
 
     return true;
 }
 
+void AudioManager::end() {
+    // Signal the task to exit gracefully.
+    if (_audioTaskHandle != NULL) {
+        _stopAudioTask = true;
+
+        const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(500);
+        while (eTaskGetState(_audioTaskHandle) != eDeleted && xTaskGetTickCount() < deadline) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        // If the task did not quit gracefully, force-delete it.
+        if (eTaskGetState(_audioTaskHandle) != eDeleted) {
+            vTaskDelete(_audioTaskHandle);
+        }
+
+        _audioTaskHandle = NULL;
+    }
+
+    _audio.stopSong();
+
+    if (audioNextSem) {
+        vSemaphoreDelete(audioNextSem);
+        audioNextSem = NULL;
+    }
+
+    if (_mutex) {
+        vSemaphoreDelete(_mutex);
+        _mutex = NULL;
+    }
+
+    if (_fs) {
+        _fs->end();
+        _fs = NULL;
+    }
+}
+
 void AudioManager::audioTask(void* parameter) {
     AudioManager* self = (AudioManager*)parameter;
     
-    for (;;) {
+    while (!self->_stopAudioTask) {
         // 1. SAFE AUDIO CHUNKING
         #if defined(ENABLE_IMU)
         if (xSemaphoreTake(hardwareBusMutex, pdMS_TO_TICKS(10)) == pdTRUE) {

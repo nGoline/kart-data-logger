@@ -1,10 +1,12 @@
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <esp_sleep.h>
 
 // Modular Libraries
 #include "EspNowManager.h"
 #include "AudioManager.h"
 #include "BatteryManager.h"
+#include "PowerManager.h"
 #include "LapManager.h"
 #include "VoiceParser.h"
 #include "ErrorLogManager.h"
@@ -21,15 +23,14 @@
 #define I2S_DIN D0
 #define I2S_BCLK D1
 #define I2S_LRC D2
-#define LATCH_PIN D3
-#define I2C_SDA SDA
-#define I2C_SCL SCL
+#define PERIPHERAL_ENABLE_PIN D3
 #define GPS_RX RX
 #define GPS_TX TX
 #define OFF_BUTTON_PIN D8
 #define BATT_ADC A9
+#define VDIV_ENABLE_PIN D10
 #define HOLD_TIME_MS 3000 // 3 seconds to turn off
-#define CAPACITOR_DISCHARGE_TIME_MS 5000 // Time to wait for the capacitor to discharge before cutting power
+#define BATTERY_READ_INTERVAL_MS 5000 // 5-10 seconds between battery samples
 
 // --- GLOBAL MANAGERS ---
 #if defined(USE_FAKE_GPS)
@@ -39,12 +40,15 @@ GpsManager gps(GPS_RX, GPS_TX);
 #endif
 
 AudioManager audio(I2S_BCLK, I2S_LRC, I2S_DIN);
-BatteryManager battery(BATT_ADC, 2.0f);
+BatteryManager battery(BATT_ADC, VDIV_ENABLE_PIN);
+PowerManager powerManager(OFF_BUTTON_PIN, PERIPHERAL_ENABLE_PIN, HOLD_TIME_MS, 1);
 LapManager lapTimer;
 ErrorLogManager errorLogger;
 
 // --- FREERTOS QUEUE & MUTEX ---
 QueueHandle_t telemetryQueue;
+static uint32_t lastBatteryReadMs = 0;
+static uint8_t cachedBatteryPercentage = 0;
 
 #if !defined(USE_FAKE_GPS)
 // Wait for a newer IMU sample than lastUsedCounter. We keep a strict timeout so
@@ -165,9 +169,14 @@ void telemetryTask(void *pvParameters) {
         msg.sats = (uint8_t)gps.getSatellites();
         msg.hasFix = gps.hasFix() ? 1 : 0;
         msg.timestamp = gps.getEpochMs();
-        msg.helmetBattery = (uint8_t)battery.getPercentage();
+        msg.helmetBattery = cachedBatteryPercentage;
         msg.usedFreshImu = usedFreshImu;
         #endif
+
+        if ((millis() - lastBatteryReadMs) >= BATTERY_READ_INTERVAL_MS) {
+            cachedBatteryPercentage = battery.getPercentage();
+            lastBatteryReadMs = millis();
+        }
 
         // 3. Send to Queue (Don't block if full, just drop the oldest)
         if (xQueueSend(telemetryQueue, &msg, 0) != pdPASS) {
@@ -183,64 +192,9 @@ void telemetryTask(void *pvParameters) {
     }
 }
 
-unsigned long buttonPressTime = 0;
-bool isButtonPressed = false;
-bool ignoreInitialBootPress = true; // Prevents turning off immediately if you hold it while booting
-void checkOffButton(){
-    // Remember: Because of Q4, LOW means pressed, HIGH means released
-    bool currentButtonState = (digitalRead(OFF_BUTTON_PIN) == LOW);
-    // --- BUTTON STATE MACHINE ---
-    if (currentButtonState && !isButtonPressed) {
-        log_i("Off button pressed.");
-        // The moment the button goes down
-        buttonPressTime = millis();
-        isButtonPressed = true;
-    } else if (!currentButtonState && isButtonPressed) {
-        log_i("Off button released.");
-        // The moment the button is released
-        isButtonPressed = false;
-        ignoreInitialBootPress = false; // We successfully let go of the button after booting
-    }
-
-    // --- LONG PRESS DETECTION (SHUTDOWN) ---
-    if (isButtonPressed && !ignoreInitialBootPress) {
-        if (millis() - buttonPressTime >= HOLD_TIME_MS) {
-            LOG_ERROR("Manual Shutdown Triggered! Release button to power off!");
-            
-            // Wait here until the user lets go of the button
-            bool isLedOn = false;
-            while(digitalRead(OFF_BUTTON_PIN) == LOW) {
-                // Toggle the LED every 250ms to indicate shutdown mode
-                digitalWrite(LED_BUILTIN, isLedOn ? LOW : HIGH);
-                isLedOn = !isLedOn;
-                delay(250); 
-            }
-            
-            LOG_ERROR("Shutting down now.");
-            unsigned long shutdownStart = millis();
-            while(millis() - shutdownStart < CAPACITOR_DISCHARGE_TIME_MS) { // Wait up to 5 seconds for the capacitor to drain
-                // Toggle the LED every 100ms to indicate shutdown mode
-                digitalWrite(LED_BUILTIN, isLedOn ? LOW : HIGH);
-                isLedOn = !isLedOn;
-                delay(100);
-            }
-
-            // Release the latch to commit suicide
-            digitalWrite(LATCH_PIN, LOW);
-
-            // If we've made it here, we're must be connected to a usb cable for charging. Let's just go to deep sleep and wait for the power to cut instead of busy looping and draining the battery.
-            esp_deep_sleep_start();
-        }
-    }
-}
 
 
 void setup() {
-    pinMode(LATCH_PIN, OUTPUT);
-    digitalWrite(LATCH_PIN, HIGH); // Ensure latch is HIGH on boot
-
-    pinMode(OFF_BUTTON_PIN, INPUT_PULLUP);
-
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, HIGH);
 
@@ -253,6 +207,13 @@ void setup() {
 
     unsigned long serialStart = millis();
     while (!Serial && millis() - serialStart < 2000) { delay(10); }
+
+    esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
+    if (wakeCause == ESP_SLEEP_WAKEUP_EXT0) {
+        log_i("Woke from hibernate via OFF button.");
+    } else if (wakeCause != ESP_SLEEP_WAKEUP_UNDEFINED) {
+        log_i("Wakeup cause: %d", wakeCause);
+    }
 
     log_i("--- KART LOGGER BOOTING ---");
 
@@ -267,6 +228,9 @@ void setup() {
     if (!errorLogger.begin()) {
         LOG_ERROR("ErrorLogManager failed to initialize!");
     }
+
+    // Initialize power management before peripherals are used
+    powerManager.begin();
         
     // Start the audio engine on Core 0
     audio.begin(LittleFS, 10); 
@@ -280,12 +244,13 @@ void setup() {
 
     // 4. Battery Check
     battery.begin();
-    int battLevel = battery.getPercentage();
-    log_i("Battery: %d%%", battLevel);
+    cachedBatteryPercentage = battery.getPercentage();
+    lastBatteryReadMs = millis();
+    log_i("Battery: %d%%", cachedBatteryPercentage);
     
     #if defined(HAS_STARTUP_AUDIO_CUES)
     audio.tryQueueAudio("/battery_level.wav");
-    VoiceParser::queueNumber(audio, battLevel); // Uncomment if VoiceParser is ready
+    VoiceParser::queueNumber(audio, cachedBatteryPercentage); // Uncomment if VoiceParser is ready
     audio.tryQueueAudio("/silence.wav");
 
     // 5. ESP-NOW Radio
@@ -394,8 +359,7 @@ void setup() {
 }
 
 void loop() {
-    // Check if OFF button is being pressed to shut down the system (Hold for 3 seconds)
-    checkOffButton();
+    powerManager.update(cachedBatteryPercentage);
 
     // --- IMU UPLINK PPS COUNTER ---
 #if CORE_DEBUG_LEVEL == ARDUHAL_LOG_LEVEL_DEBUG
@@ -451,7 +415,7 @@ void loop() {
                 // STILL SEARCHING: Announce satellites if the count changed 
                 // AND at least 30 seconds have passed since the last announcement.
                 if (millis() - lastAnnounceTime > 30000) { // msg.sats != lastSats && 
-                    log_i("Searching... Satellites: %d", msg.sats);
+                    log_v("Searching... Satellites: %d", msg.sats);
                     
                     #if defined(HAS_STARTUP_AUDIO_CUES)
                     audio.tryQueueAudio("/wait.wav");
@@ -467,7 +431,7 @@ void loop() {
 
             static uint32_t lastNoFixInfoMs = 0;
             if (millis() - lastNoFixInfoMs > 5000) {
-                log_i("No GPS fix yet; telemetry/battery broadcast remains active.");
+                log_d("No GPS fix yet; telemetry/battery broadcast remains active.");
                 lastNoFixInfoMs = millis();
             }
         } else {
@@ -506,8 +470,8 @@ void loop() {
         }
 
         // Debug Log
-        log_d("SENT: Spd:%.1f G:%.2f Sats:%d Fix:%d | Batt: %.2f%%", 
-              msg.speedKmph, msg.totalGForce, msg.sats, msg.hasFix, battery.getPercentage());
+        log_v("SENT: Spd:%.1f G:%.2f Sats:%d Fix:%d | Batt: %d%%", 
+              msg.speedKmph, msg.totalGForce, msg.sats, msg.hasFix, cachedBatteryPercentage);
     }
 #endif
 

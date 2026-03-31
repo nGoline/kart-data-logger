@@ -6,8 +6,8 @@
 class BatteryManager {
 public:
     // adcPin: The GPIO used for sensing
-    // latchPin: The GPIO used to commit suicide in case battery level is too low
-    BatteryManager(uint8_t adcPin, uint8_t latchPin);
+    // dividerEnablePin: the GPIO that enables the voltage divider only while measuring
+    BatteryManager(uint8_t adcPin, uint8_t dividerEnablePin);
 
     void begin();
     float getVoltage();
@@ -15,8 +15,9 @@ public:
 
 private:
     uint8_t _pin;
-    uint8_t _latchPin;
+    uint8_t _dividerEnablePin;
     const float _vRef = 3.3f;
+    const float _dividerRatio = 2.0f;
 };
 
 #endif

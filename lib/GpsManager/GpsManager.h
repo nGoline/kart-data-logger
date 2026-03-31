@@ -12,6 +12,7 @@ public:
 
     bool begin();
     bool update();
+    void end();
 
     double getLat();
     double getLng();

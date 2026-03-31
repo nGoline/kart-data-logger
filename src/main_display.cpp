@@ -111,17 +111,17 @@ void syncUI() {
     if (EspNowManager::newDataAvailable) {
         EspNowManager::newDataAvailable = false;
 
-        static uint64_t lastProcessedTimestamp = 0;
-        if (EspNowManager::lastTelemetry.timestamp == lastProcessedTimestamp) {
-            return; // This is a Wi-Fi echo/duplicate. Ignore it!
-        }
+        // static uint64_t lastProcessedTimestamp = 0;
+        // if (EspNowManager::lastTelemetry.timestamp == lastProcessedTimestamp) {
+        //     return; // This is a Wi-Fi echo/duplicate. Ignore it!
+        // }
 
         // 2. Push to SD Log Queue (Non-blocking)
         if (LogManager::logQueue != NULL) {
             xQueueSend(LogManager::logQueue, &EspNowManager::lastTelemetry, 0);
         }
 
-        lastProcessedTimestamp = EspNowManager::lastTelemetry.timestamp;
+        // lastProcessedTimestamp = EspNowManager::lastTelemetry.timestamp;
         targetSpeed = EspNowManager::lastTelemetry.speedKmph;
         lastMessageCount++;
 

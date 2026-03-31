@@ -39,9 +39,9 @@
         "other_text_thickness": 0.15,
         "other_text_upright": false,
         "pads": {
-          "drill": 0.0,
-          "height": 1.1,
-          "width": 2.5
+          "drill": 0.3,
+          "height": 0.5,
+          "width": 0.5
         },
         "silk_line_width": 0.1,
         "silk_text_italic": false,
@@ -130,7 +130,7 @@
       },
       "rules": {
         "max_error": 0.005,
-        "min_clearance": 0.0,
+        "min_clearance": 0.1524,
         "min_connection": 0.0,
         "min_copper_edge_clearance": 0.5,
         "min_groove_width": 0.0,
@@ -143,7 +143,7 @@
         "min_text_height": 0.8,
         "min_text_thickness": 0.08,
         "min_through_hole_diameter": 0.3,
-        "min_track_width": 1.27,
+        "min_track_width": 0.1524,
         "min_via_annular_width": 0.1,
         "min_via_diameter": 0.5,
         "solder_mask_to_copper_clearance": 0.0,
@@ -195,8 +195,9 @@
       ],
       "track_widths": [
         0.0,
-        0.127,
-        1.27
+        0.125,
+        0.25,
+        0.5
       ],
       "tuning_pattern_settings": {
         "diff_pair_defaults": {
@@ -487,7 +488,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "kart_data_logger.kicad_pro",
+    "filename": "kart_smd.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -523,7 +524,7 @@
     "last_paths": {
       "idf": "",
       "netlist": "",
-      "plot": "",
+      "plot": "./gbr",
       "specctra_dsn": "",
       "vrml": ""
     },
@@ -674,12 +675,12 @@
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "kart_data_logger.kicad_sch",
+        "filename": "kart_smd.kicad_sch",
         "name": "Root",
         "uuid": "301bd5d2-ee50-4328-bd4b-0bdabdaa4add"
       }
     ],
-    "used_designators": "#PWR10",
+    "used_designators": "L1-3,J1-4,#PWR1-18,Q1-3,D1,C1-5,R1-6,U1-3",
     "variants": []
   },
   "sheets": [

@@ -9,6 +9,7 @@ public:
 
     virtual bool begin() = 0;
     virtual bool update() = 0;
+    virtual void end() = 0;
 
     virtual double getLat() = 0;
     virtual double getLng() = 0;

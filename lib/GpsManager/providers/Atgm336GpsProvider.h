@@ -15,6 +15,7 @@ public:
 
     bool begin() override;
     bool update() override;
+    void end() override;
 
     double getLat() override;
     double getLng() override;

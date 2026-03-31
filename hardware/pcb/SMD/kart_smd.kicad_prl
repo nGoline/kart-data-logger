@@ -1,6 +1,6 @@
 {
   "board": {
-    "active_layer": 0,
+    "active_layer": 5,
     "active_layer_preset": "",
     "auto_track_width": false,
     "hidden_netclasses": [],
@@ -53,7 +53,7 @@
       "board_outline_area",
       "ly_points"
     ],
-    "visible_layers": "ffffffff_ffffffff_ffffd575_55555575",
+    "visible_layers": "ffffffff_ffffffff_ffffd575_575555f5",
     "zone_display_mode": 0
   },
   "git": {
@@ -63,21 +63,11 @@
     "ssh_key": ""
   },
   "meta": {
-    "filename": "kart_data_logger.kicad_prl",
+    "filename": "kart_smd.kicad_prl",
     "version": 5
   },
   "net_inspector_panel": {
     "col_hidden": [
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
       false,
       false,
       false,
@@ -99,17 +89,7 @@
       6,
       7,
       8,
-      9,
-      10,
-      11,
-      12,
-      13,
-      14,
-      15,
-      16,
-      17,
-      18,
-      19
+      9
     ],
     "col_widths": [
       156,
@@ -120,16 +100,6 @@
       103,
       103,
       74,
-      103,
-      103,
-      103,
-      103,
-      103,
-      103,
-      103,
-      103,
-      103,
-      103,
       103,
       103
     ],

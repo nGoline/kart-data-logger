@@ -2,7 +2,7 @@
 #define AUDIO_MANAGER_H
 
 #include <Arduino.h>
-#include <FS.h>
+#include <LittleFS.h>
 #include <queue>
 #include "Audio.h" // Assuming ESP32-audioI2S library
 
@@ -11,7 +11,8 @@ public:
     AudioManager(int bclkPin, int lrcPin, int dinPin);
     
     // Pass LittleFS or SD here
-    bool begin(FS &fs, int volume = 15);
+    bool begin(LittleFSFS &fs, int volume = 15);
+    void end();
 
     bool tryQueueAudio(const char* filename);
     void setVolume(int volume);
@@ -23,9 +24,11 @@ public:
 private:
     int _bclk, _lrc, _din;
     Audio _audio;
-    FS* _fs;
+    LittleFSFS* _fs;
     std::queue<String> _playlist;
     SemaphoreHandle_t _mutex;
+    TaskHandle_t _audioTaskHandle;
+    bool _stopAudioTask;
     
     void playNextInQueue(String nextFile);
     static void audioTask(void* parameter);
