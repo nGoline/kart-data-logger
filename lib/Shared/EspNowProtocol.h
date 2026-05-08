@@ -33,6 +33,7 @@ struct __attribute__((packed)) TelemetryMsg {
     uint64_t timestamp;
     uint8_t helmetBattery;
     bool usedFreshImu;
+    float steeringAngle;  // Steering wheel angle in degrees
 };
 
 static_assert(sizeof(float) == 4, "Telemetry protocol requires 4-byte float");

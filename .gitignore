@@ -10,3 +10,6 @@ cache
 hardware/**/kart_data_logger-backups
 hardware/**/*.lck
 hardware/**/gbr
+.claude/
+.memsearch/
+hardware/**/.history/
