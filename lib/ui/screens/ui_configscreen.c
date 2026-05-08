@@ -97,6 +97,8 @@ lv_obj_set_style_text_font(ui_labelbacktext, &ui_font_BarlowCondensedBold22, LV_
 ui_labelsetup = lv_label_create(ui_panelsetup);
 lv_obj_set_width( ui_labelsetup, LV_SIZE_CONTENT);  /// 1
 lv_obj_set_height( ui_labelsetup, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_labelsetup, 0 );
+lv_obj_set_y( ui_labelsetup, 1 );
 lv_obj_set_align( ui_labelsetup, LV_ALIGN_CENTER );
 lv_label_set_text(ui_labelsetup,"SETUP");
 lv_obj_set_style_text_color(ui_labelsetup, lv_color_hex(0xF6F8FB), LV_PART_MAIN | LV_STATE_DEFAULT );

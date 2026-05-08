@@ -3,14 +3,18 @@
 // LVGL version: 9.3
 // Project name: minimalist
 
+// After SquareLine regeneration, re-add: #include "ui_theme.h"
+// and restore the two delegate calls below.
+
 #include "ui.h"
+#include "ui_theme.h"
 
 void applyDarkTheme(lv_event_t * e)
 {
-	// Your code here
+	ui_theme_apply_dark(e);
 }
 
 void applyLightTheme(lv_event_t * e)
 {
-	// Your code here
+	ui_theme_apply_light(e);
 }

@@ -4,11 +4,18 @@
 #define DASH_WARN_HEX 0xFFB020
 
 static dash_theme_t T = THEME_NIGHT;
+static UiHelper *s_instance = nullptr;
 
 /* helper */
 static inline lv_color_t C(uint32_t hex) { return lv_color_hex(hex); }
 
+// C bridge called from lib/ui/ui_theme.cpp (0=dark, 1=light)
+extern "C" void ui_helper_set_theme(int mode) {
+    if (s_instance) s_instance->setTheme(mode == 0 ? DASH_MODE_NIGHT : DASH_MODE_DAY);
+}
+
 void UiHelper::init() {
+    s_instance = this;
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = {
             .task_priority     = 4,
@@ -166,6 +173,20 @@ void UiHelper::setTheme(dash_mode_t mode) {
     lv_obj_set_style_text_color(ui_labeltagdisplay, C(T.muted), 0);
     lv_obj_set_style_text_color(ui_labeltaggps,  C(T.muted), 0);
     lv_obj_set_style_text_color(ui_labeltagesp,  C(T.muted), 0);
+
+    /* Config screen theme button accents.
+     * All screens are created at startup by ui_init(), so these are always valid. */
+    if (ui_buttondark) {
+        bool night = (mode == DASH_MODE_NIGHT);
+        lv_obj_t *active_btn   = night ? ui_buttondark            : ui_buttondark1;
+        lv_obj_t *active_lbl   = night ? ui_labeltracksetuptext2  : ui_labeltracksetuptext1;
+        lv_obj_t *inactive_btn = night ? ui_buttondark1           : ui_buttondark;
+        lv_obj_t *inactive_lbl = night ? ui_labeltracksetuptext1  : ui_labeltracksetuptext2;
+        lv_obj_set_style_bg_color  (active_btn,   C(T.accent), LV_PART_MAIN);
+        lv_obj_set_style_text_color(active_lbl,   C(T.bg),     LV_PART_MAIN);
+        lv_obj_set_style_bg_color  (inactive_btn, C(T.track),  LV_PART_MAIN);
+        lv_obj_set_style_text_color(inactive_lbl, C(T.fg),     LV_PART_MAIN);
+    }
 }
 
 /* ----- status bar setters ----- */

@@ -6,6 +6,7 @@
 #include "EspNowProtocol.h"
 #include "uiHelper.h"
 #include "BatteryManager.h"
+#include "ConfigManager.h"
 
 #if defined(ENABLE_IMU)
 #include "ImuManager.h"
@@ -190,6 +191,18 @@ void setup() {
     EspNowManager::begin();
     logManager.begin();
     displayBattery.begin();
+
+    // 4. Load config from SD and apply saved theme
+    configManager.begin();
+    bsp_display_lock(0);
+    uiHelper.setTheme(configManager.getTheme() == 0 ? DASH_MODE_NIGHT : DASH_MODE_DAY);
+    bsp_display_unlock();
+
+    // 4. Load config from SD and apply saved theme
+    configManager.begin();
+    bsp_display_lock(0);
+    uiHelper.setTheme(configManager.getTheme() == 0 ? DASH_MODE_NIGHT : DASH_MODE_DAY);
+    bsp_display_unlock();
 
 #if defined(ENABLE_IMU)
     if (imuReady) {
