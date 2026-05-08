@@ -1,5 +1,7 @@
 #include "CalibrationManager.h"
 
+#if defined(ENABLE_IMU)
+
 CalibrationManager::CalibrationManager(ImuManager& imu) : _imu(imu) {}
 
 void CalibrationManager::begin() {
@@ -138,3 +140,5 @@ void CalibrationManager::destroyOverlay() {
         _bar = nullptr;
     }
 }
+
+#endif // ENABLE_IMU

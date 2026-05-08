@@ -69,7 +69,7 @@ esp_err_t esp_lcd_new_panel_axs15231b(const esp_lcd_panel_io_handle_t io, const 
  * @brief LCD panel bus configuration structure
  *
  */
-#define AXS15231B_PANEL_BUS_I80_CONFIG(dc, wr, clk, d0, d1, d2, d3, d4, d5, d6, d7, b_w, max_trans_sz) \
+#define AXS15231B_PANEL_BUS_I80_CONFIG(dc, wr, clk, d0, d1, d2, d3, d4, d5, d6, d7, b_w) \
     {                                                          \
         .dc_gpio_num = dc,                                     \
         .wr_gpio_num = wr,                                     \
@@ -85,26 +85,26 @@ esp_err_t esp_lcd_new_panel_axs15231b(const esp_lcd_panel_io_handle_t io, const 
             d7,                                                \
         },                                                     \
         .bus_width = b_w,                                      \
-        .max_transfer_bytes = max_trans_sz,                    \
+        .max_transfer_bytes = AXS15231B_I80_MAX_TRANSFER_SZ,   \
     }
 
-#define AXS15231B_PANEL_BUS_SPI_CONFIG(sclk, mosi, max_trans_sz)  \
+#define AXS15231B_PANEL_BUS_SPI_CONFIG(sclk, mosi)  \
     {                                                           \
         .sclk_io_num = sclk,                                    \
         .mosi_io_num = mosi,                                    \
         .miso_io_num = -1,                                      \
         .quadhd_io_num = -1,                                    \
         .quadwp_io_num = -1,                                    \
-        .max_transfer_sz = max_trans_sz,                        \
+        .max_transfer_sz = AXS15231B_SPI_MAX_TRANSFER_SZ,       \
     }
-#define AXS15231B_PANEL_BUS_QSPI_CONFIG(sclk, d0, d1, d2, d3, max_trans_sz) \
+#define AXS15231B_PANEL_BUS_QSPI_CONFIG(sclk, d0, d1, d2, d3) \
     {                                                           \
         .sclk_io_num = sclk,                                    \
         .data0_io_num = d0,                                     \
         .data1_io_num = d1,                                     \
         .data2_io_num = d2,                                     \
         .data3_io_num = d3,                                     \
-        .max_transfer_sz = max_trans_sz,                        \
+        .max_transfer_sz = AXS15231B_QSPI_MAX_TRANSFER_SZ,      \
     }
 
 /**
@@ -114,9 +114,9 @@ esp_err_t esp_lcd_new_panel_axs15231b(const esp_lcd_panel_io_handle_t io, const 
 #define AXS15231B_PANEL_IO_I80_CONFIG(cs, dc, cb, cb_ctx)       \
     {                                                           \
         .cs_gpio_num = cs,                                      \
-        .pclk_hz = 20 * 1000 * 1000,                            \
+        .pclk_hz = AXS15231B_I80_PCLK_HZ,                       \
         .on_color_trans_done = cb,                              \
-        .trans_queue_depth = 10,                                \
+        .trans_queue_depth = AXS15231B_I80_TRANS_QUEUE_SIZE,    \
         .user_ctx = cb_ctx,                                     \
         .dc_levels = {                                          \
             .dc_idle_level = 0,                                 \
@@ -124,34 +124,34 @@ esp_err_t esp_lcd_new_panel_axs15231b(const esp_lcd_panel_io_handle_t io, const 
             .dc_dummy_level = 0,                                \
             .dc_data_level = 1,                                 \
         },                                                      \
-        .lcd_cmd_bits = 8,                                      \
-        .lcd_param_bits = 8,                                    \
+        .lcd_cmd_bits = AXS15231B_I80_LCD_CMD_BITS,             \
+        .lcd_param_bits = AXS15231B_I80_LCD_PARAM_BITS,         \
     }
 
 #define AXS15231B_PANEL_IO_SPI_CONFIG(cs, dc, cb, cb_ctx)       \
     {                                                           \
         .cs_gpio_num = cs,                                      \
         .dc_gpio_num = dc,                                      \
-        .spi_mode = 3,                                          \
-        .pclk_hz = 40 * 1000 * 1000,                            \
-        .trans_queue_depth = 10,                                \
+        .spi_mode = AXS15231B_SPI_SPI_MODE,                     \
+        .pclk_hz = AXS15231B_SPI_PCLK_HZ,                       \
+        .trans_queue_depth = AXS15231B_SPI_TRANS_QUEUE_SIZE,    \
         .on_color_trans_done = cb,                              \
         .user_ctx = cb_ctx,                                     \
-        .lcd_cmd_bits = 8,                                      \
-        .lcd_param_bits = 8,                                    \
+        .lcd_cmd_bits = AXS15231B_SPI_LCD_CMD_BITS,             \
+        .lcd_param_bits = AXS15231B_SPI_LCD_PARAM_BITS,         \
     }
 
 #define AXS15231B_PANEL_IO_QSPI_CONFIG(cs, cb, cb_ctx)          \
     {                                                           \
         .cs_gpio_num = cs,                                      \
         .dc_gpio_num = -1,                                      \
-        .spi_mode = 3,                                          \
-        .pclk_hz = 40 * 1000 * 1000,                            \
-        .trans_queue_depth = 10,                                \
+        .spi_mode = AXS15231B_QSPI_SPI_MODE,                    \
+        .pclk_hz = AXS15231B_QSPI_PCLK_HZ,                      \
+        .trans_queue_depth = AXS15231B_QSPI_TRANS_QUEUE_SIZE,   \
         .on_color_trans_done = cb,                              \
         .user_ctx = cb_ctx,                                     \
-        .lcd_cmd_bits = 32,                                     \
-        .lcd_param_bits = 8,                                    \
+        .lcd_cmd_bits = AXS15231B_QSPI_LCD_CMD_BITS,            \
+        .lcd_param_bits = AXS15231B_QSPI_LCD_PARAM_BITS,        \
         .flags = {                                              \
             .quad_mode = true,                                  \
         },                                                      \

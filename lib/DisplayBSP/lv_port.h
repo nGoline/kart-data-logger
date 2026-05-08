@@ -45,10 +45,6 @@ typedef struct {
     uint32_t    hres;           /*!< LCD display horizontal resolution */
     uint32_t    vres;           /*!< LCD display vertical resolution */
     lv_display_rotation_t   sw_rotate;    /* Panel software rotate_mask */
-    struct {
-        unsigned int buff_dma: 1;    /*!< Allocated LVGL buffer will be DMA capable */
-        unsigned int buff_spiram: 1; /*!< Allocated LVGL buffer will be in PSRAM */
-    } flags;
 } lvgl_port_display_cfg_t;
 
 #if __has_include ("esp_lcd_touch.h")

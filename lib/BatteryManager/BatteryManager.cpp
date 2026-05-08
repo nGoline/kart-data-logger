@@ -1,43 +1,44 @@
 #include "BatteryManager.h"
 #include "LoggingUtils.h"
 
-BatteryManager::BatteryManager(uint8_t adcPin, uint8_t dividerEnablePin)
+BatteryManager::BatteryManager(uint8_t adcPin, uint8_t dividerEnablePin, float dividerRatio)
     : _pin(adcPin)
-    , _dividerEnablePin(dividerEnablePin) {}
+    , _dividerEnablePin(dividerEnablePin)
+    , _dividerRatio(dividerRatio) {}
 
 void BatteryManager::begin() {
-    pinMode(_dividerEnablePin, OUTPUT);
-    digitalWrite(_dividerEnablePin, LOW);
+    if (_dividerEnablePin != 0xFF) {
+        pinMode(_dividerEnablePin, OUTPUT);
+        digitalWrite(_dividerEnablePin, LOW);
+    }
     pinMode(_pin, ANALOG);
     gpio_pulldown_dis((gpio_num_t)_pin);
     gpio_pullup_dis((gpio_num_t)_pin);
-    analogReadResolution(12); // 0-4095
 }
 
 float BatteryManager::getVoltage() {
-    digitalWrite(_dividerEnablePin, HIGH);
-    delay(5);
-
-    uint32_t sum = 0;
-    const int samples = 16;
-    
-    for (int i = 0; i < samples; i++) {
-        sum += analogRead(_pin);
+    if (_dividerEnablePin != 0xFF) {
+        digitalWrite(_dividerEnablePin, HIGH);
+        delay(5);
     }
 
-    digitalWrite(_dividerEnablePin, LOW);
-    
-    // 1. Get the real average of the RAW 12-bit units
-    float avgRaw = (float)sum / samples;
+    uint32_t sumMv = 0;
+    const int samples = 16;
 
-    // 2. Convert RAW units to Pin Voltage (0 - 3.3V)
-    float pinVoltage = (avgRaw / 4095.0f) * _vRef;
+    for (int i = 0; i < samples; i++) {
+        sumMv += analogReadMilliVolts(_pin);
+    }
 
-    // 3. Convert Pin Voltage to actual Battery Voltage using the divider ratio
+    if (_dividerEnablePin != 0xFF) {
+        digitalWrite(_dividerEnablePin, LOW);
+    }
+
+    // analogReadMilliVolts uses the ESP32 factory calibration curve,
+    // which corrects the non-linearity that makes raw analogRead inaccurate above ~2.5V.
+    float pinVoltage = (float)sumMv / samples / 1000.0f;
     float batteryVoltage = pinVoltage * _dividerRatio;
 
-    // 4. Update your log to match the real variables
-    log_v("Raw: %.2f | Pin: %.2fV | Total: %.2fV", avgRaw, pinVoltage, batteryVoltage);
+    log_v("Pin: %.2fV | Total: %.2fV", pinVoltage, batteryVoltage);
     
     return batteryVoltage;
 }

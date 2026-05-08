@@ -19,6 +19,8 @@ struct SteeringCalibration {
     float maxRight;
 };
 
+#if defined(ENABLE_IMU)
+
 class CalibrationManager {
 public:
     CalibrationManager(ImuManager& imu);
@@ -82,5 +84,7 @@ private:
     lv_obj_t* _timerLabel = nullptr;
     lv_obj_t* _bar = nullptr;
 };
+
+#endif // ENABLE_IMU
 
 #endif // CALIBRATION_MANAGER_H

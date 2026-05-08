@@ -29,7 +29,7 @@
 #include "display.h"
 #include "esp_bsp.h"
 
-static const char *TAG = "example";
+static const char *TAG = "esp_bsp";
 
 static const axs15231b_lcd_init_cmd_t lcd_init_cmds[] = {
     {0xBB, (uint8_t []){0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5A, 0xA5}, 8, 0},
@@ -94,14 +94,22 @@ esp_err_t bsp_i2c_init(void)
     }
 
     const i2c_master_bus_config_t bus_cfg = {
-        .i2c_port = BSP_I2C_NUM,
-        .sda_io_num = EXAMPLE_PIN_NUM_QSPI_TOUCH_SDA,
-        .scl_io_num = EXAMPLE_PIN_NUM_QSPI_TOUCH_SCL,
+        .i2c_port = DISPLAY_I2C_NUM,
+        .sda_io_num = AXS15231B_QSPI_TOUCH_SDA,
+        .scl_io_num = AXS15231B_QSPI_TOUCH_SCL,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = false,
     };
-    BSP_ERROR_CHECK_RETURN_ERR(i2c_new_master_bus(&bus_cfg, &i2c_bus_handle));
+    esp_err_t i2c_err = i2c_new_master_bus(&bus_cfg, &i2c_bus_handle);
+    if (i2c_err != ESP_OK) {
+        ESP_LOGE(TAG, "i2c_new_master_bus failed: %s (port=%d sda=%d scl=%d)",
+                 esp_err_to_name(i2c_err), DISPLAY_I2C_NUM,
+                 AXS15231B_QSPI_TOUCH_SDA, AXS15231B_QSPI_TOUCH_SCL);
+        return i2c_err;
+    }
+    ESP_LOGI(TAG, "Touch I2C bus ready (port=%d sda=%d scl=%d)",
+             DISPLAY_I2C_NUM, AXS15231B_QSPI_TOUCH_SDA, AXS15231B_QSPI_TOUCH_SCL);
 
     i2c_initialized = true;
 
@@ -123,7 +131,7 @@ static esp_err_t bsp_display_brightness_init(void)
 {
     // Setup LEDC peripheral for PWM backlight control
     const ledc_channel_config_t LCD_backlight_channel = {
-        .gpio_num = EXAMPLE_PIN_NUM_QSPI_BL,
+        .gpio_num = AXS15231B_QSPI_BL,
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .channel = LCD_LEDC_CH,
         .intr_type = LEDC_INTR_DISABLE,
@@ -222,7 +230,7 @@ static void bsp_display_tear_interrupt(void *arg)
 esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_handle_t *ret_panel, esp_lcd_panel_io_handle_t *ret_io)
 {
     esp_err_t ret = ESP_OK;
-    assert(config != NULL && config->max_transfer_sz > 0);
+    assert(config != NULL && AXS15231B_QSPI_MAX_TRANSFER_SZ > 0);
 
     SemaphoreHandle_t te_catch_sem = NULL;
     SemaphoreHandle_t te_v_sync_sem = NULL;
@@ -230,18 +238,17 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
 
     ESP_LOGI(TAG, "Initialize SPI bus");
     const spi_bus_config_t buscfg = AXS15231B_PANEL_BUS_QSPI_CONFIG(
-                                        EXAMPLE_PIN_NUM_QSPI_PCLK,
-                                        EXAMPLE_PIN_NUM_QSPI_DATA0,
-                                        EXAMPLE_PIN_NUM_QSPI_DATA1,
-                                        EXAMPLE_PIN_NUM_QSPI_DATA2,
-                                        EXAMPLE_PIN_NUM_QSPI_DATA3,
-                                        config->max_transfer_sz);
-    ESP_ERROR_CHECK(spi_bus_initialize(EXAMPLE_LCD_QSPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
+                                        AXS15231B_QSPI_PCLK,
+                                        AXS15231B_QSPI_DATA0,
+                                        AXS15231B_QSPI_DATA1,
+                                        AXS15231B_QSPI_DATA2,
+                                        AXS15231B_QSPI_DATA3);
+    ESP_ERROR_CHECK(spi_bus_initialize(AXS15231B_QSPI_HOST, &buscfg, AXS15231B_QSPI_DMA_CHANNEL));
 
     ESP_LOGI(TAG, "Install panel IO");
-    const esp_lcd_panel_io_spi_config_t io_config = AXS15231B_PANEL_IO_QSPI_CONFIG(EXAMPLE_PIN_NUM_QSPI_CS, NULL, NULL);
+    const esp_lcd_panel_io_spi_config_t io_config = AXS15231B_PANEL_IO_QSPI_CONFIG(AXS15231B_QSPI_CS, NULL, NULL);
     // Attach the LCD to the SPI bus
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)EXAMPLE_LCD_QSPI_HOST, &io_config, ret_io));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)AXS15231B_QSPI_HOST, &io_config, ret_io));
 
     ESP_LOGI(TAG, "Install LCD driver of axs15231b");
     const axs15231b_vendor_config_t vendor_config = {
@@ -252,9 +259,9 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
         },
     };
     const esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = EXAMPLE_PIN_NUM_QSPI_RST,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
-        .bits_per_pixel = BSP_LCD_BITS_PER_PIXEL,
+        .reset_gpio_num = AXS15231B_QSPI_RST,
+        .rgb_ele_order = AXS15231B_QSPI_RGB_ELEMENT_ORDER,
+        .bits_per_pixel = AXS15231B_QSPI_BITS_PER_PIXEL,
         .vendor_config = (void *) &vendor_config,
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_axs15231b(*ret_io, &panel_config, ret_panel));
@@ -323,7 +330,7 @@ err:
     if (*ret_io) {
         esp_lcd_panel_io_del(*ret_io);
     }
-    spi_bus_free(EXAMPLE_LCD_QSPI_HOST);
+    spi_bus_free(AXS15231B_QSPI_HOST);
     return ret;
 }
 
@@ -339,11 +346,10 @@ static lv_display_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
     * If the transmission time exceeds the refresh period (time_Tvdl), adopt a 2x period,
     * and start data transmission at the falling edge.
     */
-    hres = EXAMPLE_LCD_QSPI_H_RES;
-    vres = EXAMPLE_LCD_QSPI_V_RES;
+    hres = DISPLAY_WIDTH;
+    vres = DISPLAY_HEIGHT;
     const bsp_display_config_t bsp_disp_cfg = {
-        .max_transfer_sz = hres * vres * sizeof(uint16_t),
-        .tear_cfg = BSP_SYNC_TASK_CONFIG(EXAMPLE_PIN_NUM_QSPI_TE, GPIO_INTR_NEGEDGE),
+        .tear_cfg = BSP_SYNC_TASK_CONFIG(AXS15231B_QSPI_TE, GPIO_INTR_NEGEDGE),
     };
     bsp_display_new(&bsp_disp_cfg, &panel_handle, &io_handle);
 
@@ -352,16 +358,12 @@ static lv_display_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
     lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = io_handle,
         .panel_handle = panel_handle,
-        .buffer_size = cfg->buffer_size,
+        .buffer_size = LVGL_BUFFER_PIXELS,
         .sw_rotate = cfg->rotate,
         .hres = hres,
         .vres = vres,
         .trans_size = hres * vres / 10,
-        .draw_wait_cb = bsp_display_sync_cb,
-        .flags = {
-            .buff_dma = false,
-            .buff_spiram = true,
-        },
+        .draw_wait_cb = bsp_display_sync_cb
     };
 
     if (disp_cfg.sw_rotate == LV_DISPLAY_ROTATION_180 || disp_cfg.sw_rotate == LV_DISPLAY_ROTATION_0) {
@@ -438,10 +440,10 @@ esp_err_t bsp_touch_new(const bsp_display_cfg_t *config, esp_lcd_touch_handle_t 
 
     /* Initialize touch */
     esp_lcd_touch_config_t tp_cfg = {
-        .x_max = EXAMPLE_LCD_QSPI_H_RES,
-        .y_max = EXAMPLE_LCD_QSPI_V_RES,
-        .rst_gpio_num = EXAMPLE_PIN_NUM_QSPI_TOUCH_RST, // Shared with LCD reset
-        .int_gpio_num = EXAMPLE_PIN_NUM_QSPI_TOUCH_INT,
+        .x_max = DISPLAY_WIDTH,
+        .y_max = DISPLAY_HEIGHT,
+        .rst_gpio_num = AXS15231B_QSPI_TOUCH_RST, // Shared with LCD reset
+        .int_gpio_num = AXS15231B_QSPI_TOUCH_INT,
         .process_coordinates = bsp_touch_process_points_cb,
         .levels = {
             .reset = 0,
@@ -456,7 +458,8 @@ esp_err_t bsp_touch_new(const bsp_display_cfg_t *config, esp_lcd_touch_handle_t 
 
     esp_lcd_panel_io_handle_t tp_io_handle = NULL;
     esp_lcd_touch_handle_t tp_handle = NULL;
-    const esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_AXS15231B_CONFIG();
+    esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_AXS15231B_CONFIG();
+    tp_io_config.scl_speed_hz = DISPLAY_I2C_CLOCK_SPEED;
 
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_i2c_v2(i2c_bus_handle, &tp_io_config, &tp_io_handle), TAG, "");
     ESP_RETURN_ON_ERROR(esp_lcd_touch_new_i2c_axs15231b(tp_io_handle, &tp_cfg, &tp_handle), TAG, "New axs15231b failed");
@@ -497,17 +500,23 @@ err:
 
 static lv_indev_t *bsp_display_indev_init(const bsp_display_cfg_t *config, lv_display_t *disp)
 {
-    BSP_ERROR_CHECK_RETURN_NULL(bsp_touch_new(config, &tp));
-    assert(tp);
+    ESP_LOGI(TAG, "Touch init start...");
+    esp_err_t touch_err = bsp_touch_new(config, &tp);
+    if (touch_err != ESP_OK) {
+        ESP_LOGE(TAG, "bsp_touch_new failed: %s", esp_err_to_name(touch_err));
+        return NULL;
+    }
+    ESP_LOGI(TAG, "Touch chip OK, registering LVGL indev...");
 
-    /* Add touch input (for selected screen) */
     const lvgl_port_touch_cfg_t touch_cfg = {
         .disp = disp,
         .handle = tp,
         .touch_wait_cb = bsp_touch_sync_cb,
     };
 
-    return lvgl_port_add_touch(&touch_cfg);
+    lv_indev_t *indev = lvgl_port_add_touch(&touch_cfg);
+    ESP_LOGI(TAG, "Touch indev: %s", indev ? "registered" : "FAILED");
+    return indev;
 }
 
 lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
@@ -517,6 +526,8 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
     BSP_ERROR_CHECK_RETURN_NULL(bsp_display_brightness_init());
 
     BSP_NULL_CHECK(disp = bsp_display_lcd_init(cfg), NULL);
+
+    disp_indev = bsp_display_indev_init(cfg, disp);
 
     return disp;
 }
