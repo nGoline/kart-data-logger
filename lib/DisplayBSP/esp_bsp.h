@@ -18,34 +18,6 @@
 #include "lvgl.h"
 #include "lv_port.h"
 
-/**************************************************************************************************
- *  pinout
- **************************************************************************************************/
-#define BSP_I2C_NUM                     (I2C_NUM_0)
-#define BSP_I2C_CLK_SPEED_HZ            400000
-
-#define EXAMPLE_LCD_QSPI_HOST           (SPI2_HOST)
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////// LCD spec of QSPI /////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#define EXAMPLE_PIN_NUM_QSPI_CS         (GPIO_NUM_45)
-#define EXAMPLE_PIN_NUM_QSPI_PCLK       (GPIO_NUM_47)
-#define EXAMPLE_PIN_NUM_QSPI_DATA0      (GPIO_NUM_21)
-#define EXAMPLE_PIN_NUM_QSPI_DATA1      (GPIO_NUM_48)
-#define EXAMPLE_PIN_NUM_QSPI_DATA2      (GPIO_NUM_40)
-#define EXAMPLE_PIN_NUM_QSPI_DATA3      (GPIO_NUM_39)
-#define EXAMPLE_PIN_NUM_QSPI_RST        (GPIO_NUM_NC)
-#define EXAMPLE_PIN_NUM_QSPI_DC         (GPIO_NUM_8)
-#define EXAMPLE_PIN_NUM_QSPI_TE         (GPIO_NUM_38)
-#define EXAMPLE_PIN_NUM_QSPI_BL         (GPIO_NUM_1)
-
-#define EXAMPLE_PIN_NUM_QSPI_TOUCH_SCL  (GPIO_NUM_8)
-#define EXAMPLE_PIN_NUM_QSPI_TOUCH_SDA  (GPIO_NUM_4)
-#define EXAMPLE_PIN_NUM_QSPI_TOUCH_RST  (-1)
-#define EXAMPLE_PIN_NUM_QSPI_TOUCH_INT  (-1)
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -55,7 +27,6 @@ extern "C" {
  */
 typedef struct {
     lvgl_port_cfg_t lvgl_port_cfg;  /*!< Configuration for the LVGL port */
-    uint32_t buffer_size;           /*!< Size of the buffer for the screen in pixels */
     lv_display_rotation_t rotate;   /*!< Rotation configuration for the display */
 } bsp_display_cfg_t;
 

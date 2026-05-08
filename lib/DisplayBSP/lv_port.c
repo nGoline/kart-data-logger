@@ -198,12 +198,7 @@ lv_display_t *lvgl_port_add_disp(const lvgl_port_display_cfg_t *disp_cfg)
     disp_ctx->sw_rotate = disp_cfg->sw_rotate;
     disp_ctx->draw_wait_cb = disp_cfg->draw_wait_cb;
 
-    uint32_t buff_caps = MALLOC_CAP_DEFAULT;
-    if (disp_cfg->flags.buff_dma) {
-        buff_caps = MALLOC_CAP_DMA;
-    } else if (disp_cfg->flags.buff_spiram) {
-        buff_caps = MALLOC_CAP_SPIRAM;
-    }
+    uint32_t buff_caps = LVGL_BUFFER_MALLOC_FLAGS;
 
     /* Allocate draw buffer: 2 bytes per pixel (RGB565) */
     buf1 = heap_caps_malloc(disp_cfg->buffer_size * sizeof(uint16_t), buff_caps);
@@ -561,7 +556,7 @@ static void lvgl_port_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data)
             data->point.x = touchpad_x[0];
             data->point.y = touchpad_y[0];
             data->state = LV_INDEV_STATE_PRESSED;
-            esp_rom_printf("Touchpad pressed: x=%d, y=%d\n", data->point.x, data->point.y);
+            ESP_LOGI("touch", "Touchpad pressed: x=%d, y=%d", data->point.x, data->point.y);
         } else {
             data->state = LV_INDEV_STATE_RELEASED;
         }

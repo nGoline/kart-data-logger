@@ -1,0 +1,101 @@
+{
+  "root": {
+    "guid": "GUID31059928-712078S10265128",
+    "children": [
+      {
+        "guid": "GUID15768007-712191S551565128",
+        "isPage": true,
+        "properties": [
+          {
+            "nid": 10,
+            "strtype": "OBJECT/Name",
+            "strval": "DashboardScreen",
+            "InheritedType": 10
+          }
+        ],
+        "saved_objtypeKey": "SCREEN"
+      },
+      {
+        "guid": "GUID90021568-712248S7595128",
+        "isPage": true,
+        "properties": [
+          {
+            "nid": 10,
+            "strtype": "OBJECT/Name",
+            "strval": "ConfigScreen",
+            "InheritedType": 10
+          }
+        ],
+        "saved_objtypeKey": "SCREEN"
+      },
+      {
+        "guid": "GUID80748242-323402S7835128",
+        "isPage": true,
+        "properties": [
+          {
+            "nid": 10,
+            "strtype": "OBJECT/Name",
+            "strval": "StatusBarScreen",
+            "InheritedType": 10
+          }
+        ],
+        "saved_objtypeKey": "SCREEN"
+      }
+    ],
+    "properties": [
+      {
+        "nid": 1000205,
+        "strtype": "STARTEVENTS/Name",
+        "strval": "___initial_actions0",
+        "InheritedType": 10
+      }
+    ],
+    "saved_objtypeKey": "STARTEVENTS"
+  },
+  "animations": [],
+  "selected_theme": "Default",
+  "selected_screen": "GUID90021568-712248S7595128",
+  "info": {
+    "name": "minimalist.spj",
+    "depth": 1,
+    "width": 480,
+    "height": 320,
+    "rotation": 270,
+    "offset_x": 0,
+    "offset_y": 0,
+    "shape": "RECTANGLE",
+    "multilang": "DISABLE",
+    "description": "",
+    "board": "ESP32-3248S035C for PlatformIO",
+    "board_version": "2.0.0",
+    "editor_version": "1.6.1",
+    "image": "",
+    "export_temp_image": false,
+    "force_export_images": false,
+    "flat_export": false,
+    "advanced_alpha": false,
+    "pointfilter": false,
+    "theme_simplified": false,
+    "theme_dark": true,
+    "theme_color1": 5,
+    "theme_color2": 0,
+    "custom_variable_prefix": "uic",
+    "separate_screen_save": true,
+    "hierarchy_state_save": false,
+    "reverse_event_order": false,
+    "backup_cnt": 42,
+    "autosave_cnt": 0,
+    "group_color_cnt": 0,
+    "imagebytearrayprefix": "",
+    "lvgl_version": "9.3",
+    "callfuncsexport": "C_FILE",
+    "imageexport": "SOURCE",
+    "lvgl_include_path": "",
+    "naming": "Name",
+    "naming_force_lowercase": true,
+    "naming_add_subcomponent": true,
+    "nidcnt": 1000549,
+    "BitDepth": 16,
+    "Name": "minimalist"
+  }
+}

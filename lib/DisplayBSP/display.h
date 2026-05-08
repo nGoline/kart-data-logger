@@ -18,25 +18,6 @@
 #include "esp_lcd_types.h"
 #include "driver/gpio.h"
 
-/* LCD color formats */
-#define ESP_LCD_COLOR_FORMAT_RGB565    (1)
-#define ESP_LCD_COLOR_FORMAT_RGB888    (2)
-
-/* LCD display color format */
-#define BSP_LCD_COLOR_FORMAT        (ESP_LCD_COLOR_FORMAT_RGB565)
-/* LCD display color bytes endianness */
-#define BSP_LCD_BIGENDIAN           (1)
-/* LCD display color bits */
-#define BSP_LCD_BITS_PER_PIXEL      (16)
-/* LCD display color space */
-#define BSP_LCD_COLOR_SPACE         (ESP_LCD_COLOR_SPACE_RGB)
-/* LCD definition */
-#define EXAMPLE_LCD_I80_H_RES       (170)
-#define EXAMPLE_LCD_I80_V_RES       (560)
-
-#define EXAMPLE_LCD_QSPI_H_RES      (320)
-#define EXAMPLE_LCD_QSPI_V_RES      (480)
-
 /**
  * @brief Tear configuration structure
  *
@@ -61,7 +42,6 @@ extern "C" {
  *
  */
 typedef struct {
-    int max_transfer_sz;    /*!< Maximum transfer size, in bytes. */
     struct {
         int task_priority;          /*!< Tear task priority */
         int task_stack;             /*!< Tear task stack size */

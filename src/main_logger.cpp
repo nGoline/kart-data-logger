@@ -40,7 +40,7 @@ GpsManager gps(GPS_RX, GPS_TX);
 #endif
 
 AudioManager audio(I2S_BCLK, I2S_LRC, I2S_DIN);
-BatteryManager battery(BATT_ADC, VDIV_ENABLE_PIN);
+BatteryManager battery(BATT_ADC, VDIV_ENABLE_PIN, 2.0f);
 PowerManager powerManager(OFF_BUTTON_PIN, PERIPHERAL_ENABLE_PIN, HOLD_TIME_MS, 1);
 LapManager lapTimer;
 ErrorLogManager errorLogger;
