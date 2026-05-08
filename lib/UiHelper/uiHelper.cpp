@@ -189,6 +189,27 @@ void UiHelper::setTheme(dash_mode_t mode) {
     }
 }
 
+/* ============================================================================
+ * SESSION STATE
+ * ============================================================================ */
+void UiHelper::setSessionState(bool active) {
+    if (ui_labelstartsession)
+        lv_label_set_text(ui_labelstartsession, active ? "STOP SESSION" : "START SESSION");
+
+    if (ui_panelrecording) {
+        if (active)
+            lv_obj_remove_flag(ui_panelrecording, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(ui_panelrecording, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void UiHelper::tickRecordingPanel() {
+    if (!ui_panelrecording || lv_obj_has_flag(ui_panelrecording, LV_OBJ_FLAG_HIDDEN)) return;
+    uint32_t c = (millis() / 500) % 2 ? T.bad : T.bad_deep;
+    lv_obj_set_style_bg_color(ui_panelrecording, C(c), LV_PART_MAIN);
+}
+
 /* ----- status bar setters ----- */
 uint32_t UiHelper::batt_color(uint8_t pct) {
     if (pct >= 50) return T.good;

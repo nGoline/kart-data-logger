@@ -44,6 +44,8 @@ public:
     void setGps(uint8_t pct);                          /* number of satellites */
     void setPps(uint8_t expected_pps, uint8_t pct);    /* number of packets per second */
     void setTheme(dash_mode_t mode);                   /* day / night swap */
+    void setSessionState(bool active);                 /* updates button label + recording panel */
+    void tickRecordingPanel();                         /* call every frame to drive the blink */
 
 private:
     static uint32_t batt_color(uint8_t pct);

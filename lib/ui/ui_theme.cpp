@@ -2,10 +2,11 @@
 #include "ui_theme.h"
 #include "ConfigManager.h"
 
-// Narrow C bridge to uiHelper.setTheme(), defined in uiHelper.cpp.
-// Avoids pulling in the full uiHelper.h header (which needs DisplayBSP headers
-// that are not in the include path for lib/ui).
+// Narrow C bridges — avoid pulling in full headers with DisplayBSP dependencies.
+// Implemented in uiHelper.cpp and main_display.cpp respectively.
 extern "C" void ui_helper_set_theme(int mode);
+extern "C" void ui_helper_toggle_session();
+extern "C" void ui_helper_stop_session();
 
 void ui_theme_apply_dark(lv_event_t *) {
     configManager.setTheme(0);
@@ -17,4 +18,12 @@ void ui_theme_apply_light(lv_event_t *) {
     configManager.setTheme(1);
     configManager.save();
     ui_helper_set_theme(1);
+}
+
+void ui_session_clicked(lv_event_t *) {
+    ui_helper_toggle_session();
+}
+
+void ui_session_stop(lv_event_t *) {
+    ui_helper_stop_session();
 }

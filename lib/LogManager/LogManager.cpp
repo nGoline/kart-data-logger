@@ -188,14 +188,25 @@ void LogManager::createNewFile() {
     }
 }
 
+void LogManager::startSession() {
+    if (!_sdAvailable || _sessionActive || _pendingStart) return;
+    _pendingStart = true;
+    log_i("LogManager: session start requested.");
+}
+
+void LogManager::stopSession() {
+    if (!_sessionActive && !_pendingStart) return;
+    _pendingStart = false;
+    _pendingStop = true;
+    log_i("LogManager: session stop requested.");
+}
+
 bool LogManager::hasValidGpsTime(const TelemetryMsg &msg) const {
     return msg.sats > 0 && msg.timestamp >= kMinValidGpsEpochMs;
 }
 
 bool LogManager::syncClockFromTelemetry(const TelemetryMsg &msg) {
-    if (!hasValidGpsTime(msg)) {
-        return false;
-    }
+    if (!hasValidGpsTime(msg)) return false;
 
     struct timeval tv = {};
     tv.tv_sec = (time_t)(msg.timestamp / 1000ULL);
@@ -206,32 +217,9 @@ bool LogManager::syncClockFromTelemetry(const TelemetryMsg &msg) {
         return false;
     }
 
-    if (!_clockSynced) {
-        log_i("LogManager: system time synced from GPS.");
-    }
+    if (!_clockSynced) log_i("LogManager: system time synced from GPS.");
     _clockSynced = true;
     return true;
-}
-
-bool LogManager::ensureCurrentLogFile(const TelemetryMsg &msg) {
-    if (!_sdAvailable) {
-        return false;
-    }
-
-    if (!_currentFileName.isEmpty()) {
-        return true;
-    }
-
-    if (!hasValidGpsTime(msg)) {
-        return false;
-    }
-
-    if (!syncClockFromTelemetry(msg)) {
-        return false;
-    }
-
-    createNewFile();
-    return !_currentFileName.isEmpty();
 }
 
 void LogManager::task(void* param) {
@@ -239,30 +227,49 @@ void LogManager::task(void* param) {
     TelemetryMsg msg;
 
     for (;;) {
-        if (xQueueReceive(logQueue, &msg, portMAX_DELAY)) {
-            if (!self->_sdAvailable) continue;
-            if (msg.sats == 0) continue;
-            if (!self->ensureCurrentLogFile(msg)) continue;
-
-            #if defined(JC3248W535)
-            File f = SD_MMC.open(self->_currentFileName, FILE_APPEND);
-            #else
-            // Wait for SPI bus to be free from LVGL
-            if (xSemaphoreTake(self->_spiMutex, pdMS_TO_TICKS(500))) {
-                File f = SD.open(self->_currentFileName, FILE_APPEND);
-            #endif
-                if (f) {
-                    f.printf("%llu,%.1f,%.2f,%.2f,%.2f,%.1f,%d,%.6f,%.6f\n", 
-                             msg.timestamp, msg.speedKmph, msg.totalGForce, 
-                             msg.gForceX, msg.gForceY, msg.steeringAngle, msg.sats, msg.lat, msg.lng);
-                             f.close();
-                }
-                #if !defined(JC3248W535)
-                xSemaphoreGive(self->_spiMutex);
-            } else {
-                log_w("LogManager: SPI Timeout! Missed a log entry.");
-            }
-            #endif
+        // Process pending start/stop requests (flags set by any task).
+        if (self->_pendingStop) {
+            self->_pendingStop   = false;
+            self->_sessionActive = false;
+            self->_currentFileName = "";
+            log_i("LogManager: session stopped.");
         }
+        if (self->_pendingStart && !self->_sessionActive) {
+            self->_pendingStart = false;
+            self->createNewFile();
+            self->_sessionActive = true;
+            log_i("LogManager: session active.");
+        }
+
+        // Use a timeout so we can re-check flags even when the queue is empty.
+        if (!xQueueReceive(logQueue, &msg, pdMS_TO_TICKS(100))) continue;
+
+        if (!self->_sdAvailable || !self->_sessionActive) continue;
+        if (msg.sats == 0) continue;
+        if (self->_currentFileName.isEmpty()) continue;
+
+        // Best-effort clock sync from GPS (non-blocking; doesn't gate logging).
+        if (!self->_clockSynced) self->syncClockFromTelemetry(msg);
+
+        #if defined(JC3248W535)
+        File f = SD_MMC.open(self->_currentFileName, FILE_APPEND);
+        #else
+        if (!xSemaphoreTake(self->_spiMutex, pdMS_TO_TICKS(500))) {
+            log_w("LogManager: SPI Timeout! Missed a log entry.");
+            continue;
+        }
+        File f = SD.open(self->_currentFileName, FILE_APPEND);
+        #endif
+
+        if (f) {
+            f.printf("%llu,%.1f,%.2f,%.2f,%.2f,%.1f,%d,%.6f,%.6f\n",
+                     msg.timestamp, msg.speedKmph, msg.totalGForce,
+                     msg.gForceX, msg.gForceY, msg.steeringAngle, msg.sats, msg.lat, msg.lng);
+            f.close();
+        }
+
+        #if !defined(JC3248W535)
+        xSemaphoreGive(self->_spiMutex);
+        #endif
     }
 }

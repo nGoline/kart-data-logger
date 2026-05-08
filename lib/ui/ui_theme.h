@@ -8,6 +8,8 @@ extern "C" {
 #include "lvgl.h"
 void ui_theme_apply_dark(lv_event_t *e);
 void ui_theme_apply_light(lv_event_t *e);
+void ui_session_clicked(lv_event_t *e);   /* toggle start / stop */
+void ui_session_stop(lv_event_t *e);      /* stop only (from PanelRecording) */
 #ifdef __cplusplus
 }
 #endif

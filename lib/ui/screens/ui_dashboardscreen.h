@@ -30,6 +30,9 @@ extern lv_obj_t *ui_labelbargy;
 extern lv_obj_t *ui_bargx;
 extern lv_obj_t *ui_labelgxvar;
 extern lv_obj_t *ui_labelgyvar;
+extern void ui_event_panelrecording( lv_event_t * e);
+extern lv_obj_t *ui_panelrecording;
+extern lv_obj_t *ui_labelrecording;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
