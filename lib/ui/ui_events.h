@@ -10,6 +10,8 @@
 extern "C" {
 #endif
 
+void stopRecording(lv_event_t * e);
+void sessionClicked(lv_event_t * e);
 void applyDarkTheme(lv_event_t * e);
 void applyLightTheme(lv_event_t * e);
 

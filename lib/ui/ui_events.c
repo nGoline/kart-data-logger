@@ -18,3 +18,13 @@ void applyLightTheme(lv_event_t * e)
 {
 	ui_theme_apply_light(e);
 }
+
+void stopRecording(lv_event_t * e)
+{
+	ui_session_stop(e);
+}
+
+void sessionClicked(lv_event_t * e)
+{
+	ui_session_clicked(e);
+}

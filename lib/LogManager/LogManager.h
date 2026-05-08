@@ -34,6 +34,11 @@ public:
 
     bool isSdAvailable() const;
 
+    // Session control — call from any task; file I/O happens inside the log task.
+    void startSession();
+    void stopSession();
+    bool isSessionActive() const { return _sessionActive; }
+
     // Queue to receive data from the EspNowManager
     static QueueHandle_t logQueue;
 
@@ -44,11 +49,15 @@ private:
     bool _sdAvailable = false;
     bool _clockSynced = false;
     String _currentFileName;
-    
+
+    // Session state — written by log task, flags set by any task (volatile for cross-task visibility)
+    volatile bool _sessionActive  = false;
+    volatile bool _pendingStart   = false;
+    volatile bool _pendingStop    = false;
+
     void createNewFile();
     bool hasValidGpsTime(const TelemetryMsg &msg) const;
     bool syncClockFromTelemetry(const TelemetryMsg &msg);
-    bool ensureCurrentLogFile(const TelemetryMsg &msg);
 };
 
 #endif

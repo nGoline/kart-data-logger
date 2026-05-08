@@ -26,7 +26,7 @@
     "separate_screen_save": true,
     "hierarchy_state_save": false,
     "reverse_event_order": false,
-    "backup_cnt": 43,
+    "backup_cnt": 49,
     "autosave_cnt": 0,
     "group_color_cnt": 0,
     "imagebytearrayprefix": "",
@@ -37,5 +37,5 @@
     "naming": "Name",
     "naming_force_lowercase": true,
     "naming_add_subcomponent": true,
-    "nidcnt": 1000549
+    "nidcnt": 1000569
 }

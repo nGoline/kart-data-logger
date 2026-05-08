@@ -24,6 +24,7 @@ extern lv_obj_t *ui_panelsetupbuttons;
 extern lv_obj_t *ui_buttontracksetup;
 extern lv_obj_t *ui_labeltracksetuptext;
 extern lv_obj_t *ui_labeltracksetup;
+extern void ui_event_buttonstartsession( lv_event_t * e);
 extern lv_obj_t *ui_buttonstartsession;
 extern lv_obj_t *ui_labelstartsession;
 extern lv_obj_t *ui_paneldarklight;

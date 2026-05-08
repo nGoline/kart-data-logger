@@ -5,13 +5,21 @@
 
 #include "../ui.h"
 
-lv_obj_t *ui_dashboardscreen = NULL;lv_obj_t *ui_labelspeedlabel = NULL;lv_obj_t *ui_labelspeedvar = NULL;lv_obj_t *ui_labelspeedunit = NULL;lv_obj_t *ui_labellapnum = NULL;lv_obj_t *ui_labellapvar = NULL;lv_obj_t *ui_labellapbest = NULL;lv_obj_t *ui_paneldelta = NULL;lv_obj_t *ui_labelarrow = NULL;lv_obj_t *ui_labeldeltavar = NULL;lv_obj_t *ui_labeldeltas = NULL;lv_obj_t *ui_bargy = NULL;lv_obj_t *ui_labelbargy = NULL;lv_obj_t *ui_bargx = NULL;lv_obj_t *ui_labelgxvar = NULL;lv_obj_t *ui_labelgyvar = NULL;
+lv_obj_t *ui_dashboardscreen = NULL;lv_obj_t *ui_labelspeedlabel = NULL;lv_obj_t *ui_labelspeedvar = NULL;lv_obj_t *ui_labelspeedunit = NULL;lv_obj_t *ui_labellapnum = NULL;lv_obj_t *ui_labellapvar = NULL;lv_obj_t *ui_labellapbest = NULL;lv_obj_t *ui_paneldelta = NULL;lv_obj_t *ui_labelarrow = NULL;lv_obj_t *ui_labeldeltavar = NULL;lv_obj_t *ui_labeldeltas = NULL;lv_obj_t *ui_bargy = NULL;lv_obj_t *ui_labelbargy = NULL;lv_obj_t *ui_bargx = NULL;lv_obj_t *ui_labelgxvar = NULL;lv_obj_t *ui_labelgyvar = NULL;lv_obj_t *ui_panelrecording = NULL;lv_obj_t *ui_labelrecording = NULL;
 // event funtions
 void ui_event_labelspeedvar( lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
 
 if ( event_code == LV_EVENT_CLICKED) {
       _ui_screen_change( &ui_configscreen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 500, 0, &ui_configscreen_screen_init);
+}
+}
+
+void ui_event_panelrecording( lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+if ( event_code == LV_EVENT_CLICKED) {
+      stopRecording( e );
 }
 }
 
@@ -225,7 +233,33 @@ lv_obj_set_style_text_letter_space(ui_labelgyvar, 1, LV_PART_MAIN| LV_STATE_DEFA
 lv_obj_set_style_text_line_space(ui_labelgyvar, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_labelgyvar, &lv_font_montserrat_14, LV_PART_MAIN| LV_STATE_DEFAULT);
 
+ui_panelrecording = lv_obj_create(ui_dashboardscreen);
+lv_obj_set_width( ui_panelrecording, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_panelrecording, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_panelrecording, 0 );
+lv_obj_set_y( ui_panelrecording, -36 );
+lv_obj_set_align( ui_panelrecording, LV_ALIGN_BOTTOM_RIGHT );
+lv_obj_set_ext_click_area(ui_panelrecording, 20);
+lv_obj_add_flag( ui_panelrecording, LV_OBJ_FLAG_HIDDEN );   /// Flags
+lv_obj_remove_flag( ui_panelrecording, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+lv_obj_set_style_radius(ui_panelrecording, 6, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_bg_color(ui_panelrecording, lv_color_hex(0xFF3B3B), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_bg_opa(ui_panelrecording, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_left(ui_panelrecording, 5, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_right(ui_panelrecording, 5, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_top(ui_panelrecording, 5, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_bottom(ui_panelrecording, 5, LV_PART_MAIN| LV_STATE_DEFAULT);
+
+ui_labelrecording = lv_label_create(ui_panelrecording);
+lv_obj_set_width( ui_labelrecording, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_labelrecording, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_align( ui_labelrecording, LV_ALIGN_CENTER );
+lv_label_set_text(ui_labelrecording," REC");
+lv_obj_set_style_text_color(ui_labelrecording, lv_color_hex(0x3A0F10), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_labelrecording, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+
 lv_obj_add_event_cb(ui_labelspeedvar, ui_event_labelspeedvar, LV_EVENT_ALL, NULL);
+lv_obj_add_event_cb(ui_panelrecording, ui_event_panelrecording, LV_EVENT_ALL, NULL);
 
 }
 
@@ -250,5 +284,7 @@ ui_labelbargy= NULL;
 ui_bargx= NULL;
 ui_labelgxvar= NULL;
 ui_labelgyvar= NULL;
+ui_panelrecording= NULL;
+ui_labelrecording= NULL;
 
 }

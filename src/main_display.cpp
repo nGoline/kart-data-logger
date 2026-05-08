@@ -102,6 +102,25 @@ static void processIncomingErrorLog() {
     }
 }
 
+// ============================================================================
+// SESSION BRIDGES (called from LVGL event callbacks via ui_theme.cpp)
+// Already in LVGL task context — do NOT call bsp_display_lock here.
+// ============================================================================
+extern "C" void ui_helper_toggle_session() {
+    if (logManager.isSessionActive()) {
+        logManager.stopSession();
+        uiHelper.setSessionState(false);
+    } else {
+        logManager.startSession();
+        uiHelper.setSessionState(true);
+    }
+}
+
+extern "C" void ui_helper_stop_session() {
+    logManager.stopSession();
+    uiHelper.setSessionState(false);
+}
+
 void syncUI() {
     bsp_display_lock(0);
     // 1. Get data from Radio
@@ -121,8 +140,8 @@ void syncUI() {
         uiHelper.setGy(EspNowManager::lastTelemetry.gForceY);
 #endif
 
-        // 2. Push to SD Log Queue (Non-blocking)
-        if (LogManager::logQueue != NULL) {
+        // 2. Push to SD Log Queue — only when a session is active to avoid stale data
+        if (LogManager::logQueue != NULL && logManager.isSessionActive()) {
             xQueueSend(LogManager::logQueue, &EspNowManager::lastTelemetry, 0);
         }
 
@@ -154,6 +173,9 @@ void syncUI() {
 
     // --- SIGNAL HEALTH INDICATOR ---
     uiHelper.setPps(expectedPps, pps);
+
+    // Drive the recording panel blink
+    uiHelper.tickRecordingPanel();
 
     bsp_display_unlock();
 }
