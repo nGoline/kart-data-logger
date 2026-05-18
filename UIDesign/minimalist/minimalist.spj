@@ -29,6 +29,19 @@
         "saved_objtypeKey": "SCREEN"
       },
       {
+        "guid": "GUID43138974-908342S3175138",
+        "isPage": true,
+        "properties": [
+          {
+            "nid": 10,
+            "strtype": "OBJECT/Name",
+            "strval": "TrackScreen",
+            "InheritedType": 10
+          }
+        ],
+        "saved_objtypeKey": "SCREEN"
+      },
+      {
         "guid": "GUID80748242-323402S7835128",
         "isPage": true,
         "properties": [
@@ -54,7 +67,7 @@
   },
   "animations": [],
   "selected_theme": "Default",
-  "selected_screen": "GUID90021568-712248S7595128",
+  "selected_screen": "GUID43138974-908342S3175138",
   "info": {
     "name": "minimalist.spj",
     "depth": 1,
@@ -83,7 +96,7 @@
     "separate_screen_save": true,
     "hierarchy_state_save": false,
     "reverse_event_order": false,
-    "backup_cnt": 49,
+    "backup_cnt": 107,
     "autosave_cnt": 0,
     "group_color_cnt": 0,
     "imagebytearrayprefix": "",
@@ -94,7 +107,7 @@
     "naming": "Name",
     "naming_force_lowercase": true,
     "naming_add_subcomponent": true,
-    "nidcnt": 1000569,
+    "nidcnt": 1000695,
     "BitDepth": 16,
     "Name": "minimalist"
   }

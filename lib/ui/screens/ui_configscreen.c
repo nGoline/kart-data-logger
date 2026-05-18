@@ -15,6 +15,14 @@ if ( event_code == LV_EVENT_CLICKED) {
 }
 }
 
+void ui_event_buttontracksetup( lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+if ( event_code == LV_EVENT_CLICKED) {
+      _ui_screen_change( &ui_trackscreen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 500, 0, &ui_trackscreen_screen_init);
+}
+}
+
 void ui_event_buttonstartsession( lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
 
@@ -257,6 +265,7 @@ lv_obj_set_style_text_opa(ui_labeltracksetuptext1, 255, LV_PART_MAIN| LV_STATE_D
 lv_obj_set_style_text_font(ui_labeltracksetuptext1, &ui_font_BarlowCondensedBold32, LV_PART_MAIN| LV_STATE_DEFAULT);
 
 lv_obj_add_event_cb(ui_panelsetupback, ui_event_panelsetupback, LV_EVENT_ALL, NULL);
+lv_obj_add_event_cb(ui_buttontracksetup, ui_event_buttontracksetup, LV_EVENT_ALL, NULL);
 lv_obj_add_event_cb(ui_buttonstartsession, ui_event_buttonstartsession, LV_EVENT_ALL, NULL);
 lv_obj_add_event_cb(ui_buttondark, ui_event_buttondark, LV_EVENT_ALL, NULL);
 lv_obj_add_event_cb(ui_buttondark1, ui_event_buttondark1, LV_EVENT_ALL, NULL);

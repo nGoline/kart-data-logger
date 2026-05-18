@@ -14,6 +14,20 @@ void stopRecording(lv_event_t * e);
 void sessionClicked(lv_event_t * e);
 void applyDarkTheme(lv_event_t * e);
 void applyLightTheme(lv_event_t * e);
+void previousTrackClicked(lv_event_t * e);
+void trackNameClicked(lv_event_t * e);
+void nextTrackClicked(lv_event_t * e);
+void addTrackClicked(lv_event_t * e);
+void latLClicked(lv_event_t * e);
+void lonLClicked(lv_event_t * e);
+void emptyLClicked(lv_event_t * e);
+void startPinLClicked(lv_event_t * e);
+void latRClicked(lv_event_t * e);
+void lonRClicked(lv_event_t * e);
+void emptyRClicked(lv_event_t * e);
+void startPinRClicked(lv_event_t * e);
+void cancelClicked(lv_event_t * e);
+void saveClicked(lv_event_t * e);
 
 #ifdef __cplusplus
 } /*extern "C"*/

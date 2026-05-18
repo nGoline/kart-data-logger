@@ -28,3 +28,73 @@ void sessionClicked(lv_event_t * e)
 {
 	ui_session_clicked(e);
 }
+
+void previousTrackClicked(lv_event_t * e)
+{
+	ui_track_prev(e);
+}
+
+void nextTrackClicked(lv_event_t * e)
+{
+	ui_track_next(e);
+}
+
+void startPinLClicked(lv_event_t * e)
+{
+	ui_track_pin_l(e);
+}
+
+void startPinRClicked(lv_event_t * e)
+{
+	ui_track_pin_r(e);
+}
+
+void cancelClicked(lv_event_t * e)
+{
+	ui_track_cancel(e);
+}
+
+void saveClicked(lv_event_t * e)
+{
+	ui_track_save(e);
+}
+
+void addTrackClicked(lv_event_t * e)
+{
+	ui_track_add(e);
+}
+
+void latLClicked(lv_event_t * e)
+{
+	ui_track_edit_lat_l(e);
+}
+
+void lonLClicked(lv_event_t * e)
+{
+	ui_track_edit_lon_l(e);
+}
+
+void emptyLClicked(lv_event_t * e)
+{
+	ui_track_edit_lat_l(e);
+}
+
+void latRClicked(lv_event_t * e)
+{
+	ui_track_edit_lat_r(e);
+}
+
+void lonRClicked(lv_event_t * e)
+{
+	ui_track_edit_lon_r(e);
+}
+
+void emptyRClicked(lv_event_t * e)
+{
+	ui_track_edit_lat_r(e);
+}
+
+void trackNameClicked(lv_event_t * e)
+{
+	ui_track_edit_track_name(e);
+}

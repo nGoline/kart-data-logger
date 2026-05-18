@@ -21,6 +21,7 @@ extern lv_obj_t *ui_labelback;
 extern lv_obj_t *ui_labelbacktext;
 extern lv_obj_t *ui_labelsetup;
 extern lv_obj_t *ui_panelsetupbuttons;
+extern void ui_event_buttontracksetup( lv_event_t * e);
 extern lv_obj_t *ui_buttontracksetup;
 extern lv_obj_t *ui_labeltracksetuptext;
 extern lv_obj_t *ui_labeltracksetup;

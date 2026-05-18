@@ -1477,6 +1477,82 @@
               "strtype": "BUTTON/Style_main",
               "strval": "lv.PART.MAIN, Rectangle, Pad, Text, Transform",
               "InheritedType": 11
+            },
+            {
+              "disabled": false,
+              "nid": 1000599,
+              "strtype": "_event/EventHandler",
+              "strval": "CLICKED",
+              "childs": [
+                {
+                  "nid": 1000600,
+                  "strtype": "_event/name",
+                  "strval": "TackSetupClickedEvent",
+                  "InheritedType": 10
+                },
+                {
+                  "nid": 1000601,
+                  "strtype": "_event/condition_C",
+                  "strval": "",
+                  "InheritedType": 10
+                },
+                {
+                  "nid": 1000602,
+                  "strtype": "_event/condition_P",
+                  "strval": "",
+                  "InheritedType": 10
+                },
+                {
+                  "nid": 1000603,
+                  "strtype": "_event/action",
+                  "strval": "CHANGE SCREEN",
+                  "childs": [
+                    {
+                      "nid": 1000604,
+                      "strtype": "CHANGE SCREEN/Name",
+                      "strval": "CHANGE SCREEN",
+                      "InheritedType": 10
+                    },
+                    {
+                      "nid": 1000605,
+                      "strtype": "CHANGE SCREEN/Call",
+                      "strval": "ChangeScreen( <{Screen_to}>, lv.SCR_LOAD_ANIM.<{Fade_mode}>, <{Speed}>, <{Delay}>)",
+                      "InheritedType": 10
+                    },
+                    {
+                      "nid": 1000606,
+                      "strtype": "CHANGE SCREEN/CallC",
+                      "strval": "_ui_screen_change( &<{Screen_to}>, LV_SCR_LOAD_ANIM_<{Fade_mode}>, <{Speed}>, <{Delay}>, &<{Screen_to}>_screen_init);",
+                      "InheritedType": 10
+                    },
+                    {
+                      "nid": 1000607,
+                      "strtype": "CHANGE SCREEN/Screen_to",
+                      "strval": "GUID43138974-908342S3175138",
+                      "InheritedType": 9
+                    },
+                    {
+                      "nid": 1000608,
+                      "strtype": "CHANGE SCREEN/Fade_mode",
+                      "strval": "MOVE_LEFT",
+                      "InheritedType": 3
+                    },
+                    {
+                      "nid": 1000609,
+                      "strtype": "CHANGE SCREEN/Speed",
+                      "integer": 500,
+                      "InheritedType": 6
+                    },
+                    {
+                      "nid": 1000610,
+                      "strtype": "CHANGE SCREEN/Delay",
+                      "InheritedType": 6
+                    }
+                  ],
+                  "InheritedType": 10
+                }
+              ],
+              "InheritedType": 4
             }
           ],
           "saved_objtypeKey": "BUTTON"
