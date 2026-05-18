@@ -3,7 +3,6 @@
 
 #include <Arduino.h>
 #include "EspNowProtocol.h" // For TelemetryMsg/Data
-#include "AudioManager.h"
 
 // Define the track width by placing a point on the left and right sides
 struct FinishLine {

@@ -18,6 +18,7 @@ extern "C" {
 ///////////////////// SCREENS ////////////////////
 #include "screens/ui_dashboardscreen.h"
 #include "screens/ui_configscreen.h"
+#include "screens/ui_trackscreen.h"
 #include "screens/ui_statusbarscreen.h"
 
 ///////////////////// VARIABLES ////////////////////
@@ -27,10 +28,10 @@ extern lv_obj_t *ui____initial_actions0;
 
 // FONTS
 LV_FONT_DECLARE( ui_font_BarlowCondensedBold200);
-LV_FONT_DECLARE( ui_font_BarlowCondensedBold60);
-LV_FONT_DECLARE( ui_font_BarlowCondensedBold48);
-LV_FONT_DECLARE( ui_font_BarlowCondensedBold32);
 LV_FONT_DECLARE( ui_font_BarlowCondensedBold22);
+LV_FONT_DECLARE( ui_font_BarlowCondensedBold32);
+LV_FONT_DECLARE( ui_font_BarlowCondensedBold48);
+LV_FONT_DECLARE( ui_font_BarlowCondensedBold60);
 
 // UI INIT
 void ui_init(void);

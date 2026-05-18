@@ -1,5 +1,4 @@
 #include "LapManager.h"
-#include <TinyGPS++.h>
 
 void LapManager::setFinishLine(const FinishLine& line) {
     _gate = line;

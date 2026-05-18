@@ -31,6 +31,7 @@ lv_theme_t *theme = lv_theme_default_init(dispp, lv_palette_main(LV_PALETTE_BLUE
 lv_disp_set_theme(dispp, theme);
 ui_dashboardscreen_screen_init();
 ui_configscreen_screen_init();
+ui_trackscreen_screen_init();
 ui_statusbarscreen_screen_init();
 ui____initial_actions0 = lv_obj_create(NULL);
 lv_disp_load_scr( ui_dashboardscreen);
@@ -39,5 +40,6 @@ lv_disp_load_scr( ui_dashboardscreen);
 void ui_destroy( void )
 {ui_dashboardscreen_screen_destroy();
 ui_configscreen_screen_destroy();
+ui_trackscreen_screen_destroy();
 ui_statusbarscreen_screen_destroy();
 }

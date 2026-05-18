@@ -7,6 +7,7 @@
 #include "uiHelper.h"
 #include "BatteryManager.h"
 #include "ConfigManager.h"
+#include "LapManager.h"
 
 #if defined(ENABLE_IMU)
 #include "ImuManager.h"
@@ -26,7 +27,8 @@ const uint8_t timeBetweenImuUplinkMessages = 10; // We expect a new IMU message 
 
 // --- GLOBAL STATE ---
 LogManager logManager;
-UiHelper uiHelper;
+UiHelper   uiHelper;
+LapManager lapManager;
 
 #if defined(ENABLE_IMU)
 ImuManager imu;
@@ -103,9 +105,21 @@ static void processIncomingErrorLog() {
 }
 
 // ============================================================================
-// SESSION BRIDGES (called from LVGL event callbacks via ui_theme.cpp)
+// BRIDGES (called from LVGL event callbacks via ui_theme.cpp)
 // Already in LVGL task context — do NOT call bsp_display_lock here.
 // ============================================================================
+extern "C" void ui_helper_apply_finish_line(double ll, double ln, double rl, double rn) {
+    FinishLine fl = { ll, ln, rl, rn };
+    lapManager.setFinishLine(fl);
+}
+
+extern "C" bool ui_helper_get_gps(double *lat, double *lon) {
+    if (!EspNowManager::lastTelemetry.hasFix) return false;
+    *lat = EspNowManager::lastTelemetry.lat;
+    *lon = EspNowManager::lastTelemetry.lng;
+    return true;
+}
+
 extern "C" void ui_helper_toggle_session() {
     if (logManager.isSessionActive()) {
         logManager.stopSession();
@@ -207,7 +221,6 @@ void setup() {
     // 2. Initialize UI
     log_i("Display BSP init...");
     uiHelper.init();
-    log_i("Display BSP done. Touch indev: %s", bsp_display_get_input_dev() ? "OK" : "NOT REGISTERED");
 
     // 3. Initialize Managers
     EspNowManager::begin();
@@ -220,10 +233,35 @@ void setup() {
     uiHelper.setTheme(configManager.getTheme() == 0 ? DASH_MODE_NIGHT : DASH_MODE_DAY);
     bsp_display_unlock();
 
-    // 4. Load config from SD and apply saved theme
+    // 4. Load config + tracks from SD and apply to UI
     configManager.begin();
     bsp_display_lock(0);
+
     uiHelper.setTheme(configManager.getTheme() == 0 ? DASH_MODE_NIGHT : DASH_MODE_DAY);
+
+    // Build name pointer array directly into ConfigManager's stable storage
+    static const char *track_name_ptrs[CONFIG_MAX_TRACKS];
+    int track_count = configManager.getTrackCount();
+    for (int i = 0; i < track_count; i++) {
+        const TrackConfig *t = configManager.getTrack(i);
+        track_name_ptrs[i] = t ? t->name : "";
+    }
+    uiHelper.setTracks(track_name_ptrs, track_count);
+
+    int sel = (int)configManager.getSelectedTrack();
+    uiHelper.setTrackIdx(sel);
+
+    const TrackConfig *active = configManager.getTrack(sel);
+    if (active) {
+        uiHelper.setStartL(active->left_lat, active->left_lon, active->left_valid);
+        uiHelper.setStartR(active->right_lat, active->right_lon, active->right_valid);
+        if (active->left_valid && active->right_valid) {
+            FinishLine fl = { active->left_lat, active->left_lon,
+                              active->right_lat, active->right_lon };
+            lapManager.setFinishLine(fl);
+        }
+    }
+
     bsp_display_unlock();
 
 #if defined(ENABLE_IMU)
