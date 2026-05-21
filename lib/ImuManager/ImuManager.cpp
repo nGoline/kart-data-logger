@@ -62,55 +62,89 @@ bool ImuManager::begin(int sda, int scl, uint32_t i2cFrequency, bool recoverBusO
     _mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_500); 
     _mpu.setDLPFMode(MPU6050_DLPF_BW_20);            
 
-    log_i("IMU: MPU6050 Initialized. Calibrating...");
-    
-    // Auto-calibrate (requires kart to be still)
-    _mpu.CalibrateAccel(6);
-    _mpu.CalibrateGyro(6);
-    
-    log_i("IMU: Calibration complete.");
+    log_i("IMU: MPU6050 Initialized.");
     return true;
 }
 
-ImuData ImuManager::update() {
+void ImuManager::calibrateOffsets() {
+    log_i("IMU: Capturing center gravity vector (STAY STILL)...");
+    
+    // Explicitly reset hardware offsets to ensure we are reading raw values
+    _mpu.setXAccelOffset(0);
+    _mpu.setYAccelOffset(0);
+    _mpu.setZAccelOffset(0);
+    _mpu.setXGyroOffset(0);
+    _mpu.setYGyroOffset(0);
+    _mpu.setZGyroOffset(0);
+    delay(200); 
+
+    // Average 100 samples for better precision
+    long sax = 0, say = 0, saz = 0;
+    long sgx = 0, sgy = 0, sgz = 0;
+    const int samples = 100;
+    
+    for (int i = 0; i < samples; i++) {
+        int16_t ax, ay, az, gx, gy, gz;
+        _mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+        sax += ax; say += ay; saz += az;
+        sgx += gx; sgy += gy; sgz += gz;
+        delay(2);
+    }
+
+    // We use software-only calibration because hardware CalibrateAccel()
+    // only works if the sensor is perfectly level (Z up).
+    _gravityX = (float)sax / samples / 4096.0f;
+    _gravityY = (float)say / samples / 4096.0f;
+    _gravityZ = (float)saz / samples / 4096.0f;
+    
+    _gyroBiasX = (float)sgx / samples / 65.5f;
+    _gyroBiasY = (float)sgy / samples / 65.5f;
+    _gyroBiasZ = (float)sgz / samples / 65.5f;
+    
+    log_i("IMU: Capture complete. Gravity: X=%.2f, Y=%.2f, Z=%.2f", _gravityX, _gravityY, _gravityZ);
+}
+
+ImuData ImuManager::update(float steeringAngleDeg) {
     ImuData data = {0};
     int16_t ax, ay, az, gx, gy, gz;
 
-    // Check if the connection is still alive before reading
     if (!_mpu.testConnection()) {
         log_e("IMU: I2C Bus crashed! Initiating Auto-Recovery...");
-
-        if (!restartI2cBus()) {
-            log_e("IMU: I2C restart failed this cycle.");
-            return data;
-        }
-
+        if (!restartI2cBus()) return data;
         delay(5);
-
-        // Re-initialize the MPU in case it went to sleep after the bus fault.
         _mpu.initialize();
-
-        if (!_mpu.testConnection()) {
-            log_e("IMU: Auto-Recovery failed this cycle.");
-            return data; // Return zeros, we'll try again in 200ms
-        } else {
-            log_i("IMU: Bus recovered successfully.");
-        }
+        if (!_mpu.testConnection()) return data;
     }
 
     _mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
-    // 8G scale factor is 4096 LSB/g
-    data.accelX = ax / 4096.0f;
-    data.accelY = ay / 4096.0f;
-    data.accelZ = az / 4096.0f;
+    // Raw readings in G and Deg/s
+    float axG = ax / 4096.0f;
+    float ayG = ay / 4096.0f;
+    float azG = az / 4096.0f;
 
-    // 500 deg/s scale factor is 65.5 LSB/(deg/s)
-    data.gyroX = gx / 65.5f;
-    data.gyroY = gy / 65.5f;
-    data.gyroZ = gz / 65.5f;
+    // Compensate for gravity shift when the wheel is turned.
+    // The rotation is around the Z axis.
+    float phi = -steeringAngleDeg * 0.0174532925f; // to radians
+    float cosPhi = cos(phi);
+    float sinPhi = sin(phi);
 
-    // Vector magnitude
+    // Calculate how the center gravity vector rotates with the steering wheel
+    float expGX = _gravityX * cosPhi - _gravityY * sinPhi;
+    float expGY = _gravityX * sinPhi + _gravityY * cosPhi;
+    float expGZ = _gravityZ;
+
+    // Subtract rotating gravity to leave only linear acceleration
+    data.accelX = axG - expGX;
+    data.accelY = ayG - expGY;
+    data.accelZ = azG - expGZ;
+
+    // Subtract gyro bias
+    data.gyroX = (gx / 65.5f) - _gyroBiasX;
+    data.gyroY = (gy / 65.5f) - _gyroBiasY;
+    data.gyroZ = (gz / 65.5f) - _gyroBiasZ;
+
+    // Lateral + Longitudinal magnitude (ignoring vertical bumps for UI)
     data.gForce = sqrt(pow(data.accelX, 2) + pow(data.accelY, 2));
 
     return data;

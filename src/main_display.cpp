@@ -1,6 +1,7 @@
 #include <Arduino.h>
-#include <esp32_smartdisplay.h>
-#include <esp_lcd_panel_ops.h>
+#include "display.h"
+#include "esp_bsp.h"
+#include "lv_port.h"
 
 // Library includes from our new /lib folder
 #include "EspNowManager.h"
@@ -10,9 +11,15 @@
 
 #if defined(ENABLE_IMU)
 #include "ImuManager.h"
+#include "CalibrationManager.h"
 
+#if defined(JC3248W535)
+#define I2C_SDA 18
+#define I2C_SCL 17
+#else
 #define I2C_SDA SDA
 #define I2C_SCL SCL
+#endif
 #endif
 
 #if defined(GPS_PROVIDER_ATGM336)
@@ -23,25 +30,14 @@ const uint8_t expectedPps = 5; // Expected packets per second from the logger (5
 
 const uint8_t timeBetweenImuUplinkMessages = 10; // We expect a new IMU message at least every 10ms (100Hz), so this is our timeout for "freshness"
 
-// --- SPI BUS SHARING LOGIC ---
-SemaphoreHandle_t spiMutex;
-
-void my_threaded_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-    if (xSemaphoreTake(spiMutex, portMAX_DELAY)) {
-        esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t)disp->user_data;
-        esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
-        xSemaphoreGive(spiMutex);
-    }
-}
-
 // --- GLOBAL STATE ---
 LogManager logManager;
 lv_obj_t* spped_bars[10];
 lv_obj_t* gForce_bars[20];
-static uint32_t lv_last_tick = 0;
 
 #if defined(ENABLE_IMU)
 ImuManager imu;
+CalibrationManager calibManager(imu);
 ImuData latestImuData = {0};
 bool imuReady = false;
 uint32_t lastImuReadMs = 0;
@@ -115,6 +111,13 @@ void syncUI() {
         // if (EspNowManager::lastTelemetry.timestamp == lastProcessedTimestamp) {
         //     return; // This is a Wi-Fi echo/duplicate. Ignore it!
         // }
+
+        // Inject current steering angle before logging/processing
+#if defined(ENABLE_IMU)
+        if (imuReady) {
+            EspNowManager::lastTelemetry.steeringAngle = calibManager.getSteeringAngle();
+        }
+#endif
 
         // 2. Push to SD Log Queue (Non-blocking)
         if (LogManager::logQueue != NULL) {
@@ -243,39 +246,47 @@ void syncUI() {
 }
 
 void setup() {
-    Serial.begin(115200);
-    spiMutex = xSemaphoreCreateMutex();
+#if ARDUINO_USB_CDC_ON_BOOT == 1
+    // If the board is configured to use USB CDC on boot, we need to wait for the USB connection to be established before we can use Serial.
+    delay(2000);
+#endif
 
+    Serial.begin(115200);
     log_i("--- KART DISPLAY BOOTING ---");
 
     // 1. Initialize IMU FIRST
 #if defined(ENABLE_IMU)
-    log_i("Initializing IMU...");
+    log_i("Initializing IMU on SDA:%d SCL:%d...", I2C_SDA, I2C_SCL);
     
-    if (!Wire.begin(I2C_SDA, I2C_SCL, 100000)) {
-        log_e("Failed to initialize I2C on default pins!");
-    }
-
-    if (imu.begin()) { // We removed the custom pins from begin() to use Wire defaults
+    // We pass the pins directly to imu.begin to handle bus recovery and Wire.begin internally
+    if (imu.begin(I2C_SDA, I2C_SCL, 100000)) { 
         log_i("IMU: OK");
         imuReady = true;
     } else {
-        log_e("IMU: Error");
-        // while(1); // Halt if IMU is dead
+        log_e("IMU: Error - Check wiring on expansion port (GPIO 9/10)");
     }
 #else
     log_i("Display IMU disabled (ENABLE_IMU not defined)");
 #endif
 
     // 2. Initialize Display Hardware
-    smartdisplay_init();
-    auto disp = lv_display_get_default();
-    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
+    bsp_display_cfg_t cfg = {
+        .lvgl_port_cfg = {
+            .task_priority     = 4,
+            .task_stack        = 16384,
+            .task_affinity     = -1,
+            .task_max_sleep_ms = 500,
+            .timer_period_ms   = 5,
+        },
+        .buffer_size = EXAMPLE_LCD_QSPI_H_RES * EXAMPLE_LCD_QSPI_V_RES,
+        .rotate = LV_DISPLAY_ROTATION_270,
+    };
+    bsp_display_start_with_config(&cfg);
+    bsp_display_backlight_on();
 
-    // 3. Hijack the Flush Callback for Thread Safety and Bit Endianess Fix
-    lv_display_set_flush_cb(disp, my_threaded_flush);
+    bsp_display_lock(0);
 
-    // 4. Initialize UI Widgets
+    // 3. Initialize UI
     ui_init();
     spped_bars[0] = ui_speed1; spped_bars[1] = ui_speed2;
     spped_bars[2] = ui_speed3; spped_bars[3] = ui_speed4;
@@ -293,11 +304,18 @@ void setup() {
     gForce_bars[16] = ui_gForce17; gForce_bars[17] = ui_gForce18;
     gForce_bars[18] = ui_gForce19; gForce_bars[19] = ui_gForce20;
 
-    // 5. Initialize Managers
-    EspNowManager::begin();  // Starts scanning for logger
-    logManager.begin(spiMutex); // Starts SD logging task
-    
-    lv_last_tick = millis();
+    bsp_display_unlock();
+
+    // 4. Initialize Managers
+    EspNowManager::begin();
+    logManager.begin();
+
+#if defined(ENABLE_IMU)
+    if (imuReady) {
+        calibManager.begin();
+    }
+#endif
+
     log_i("Display System Ready.");
 }
 
@@ -307,26 +325,35 @@ void loop() {
     processIncomingErrorLog();
 
 #if defined(ENABLE_IMU)
-    if (imuReady && (now - lastImuReadMs >= timeBetweenImuUplinkMessages)) {
-        latestImuData = imu.update();
-        lastImuReadMs = now;
+    if (imuReady) {
+        float currentSteering = calibManager.getSteeringAngle();
 
-        // Push IMU immediately so logger can consume a fresh sample
-        // before building its next telemetry frame.
-        ImuFeedbackMsg imuMsg = {};
-        imuMsg.type = MSG_IMU_FEEDBACK;
-        imuMsg.gForceX = latestImuData.accelX;
-        imuMsg.gForceY = latestImuData.accelY;
-        imuMsg.totalGForce = latestImuData.gForce;
-        imuMsg.gyroZ = latestImuData.gyroZ;
-        imuMsg.sampleMs = now;
+        if (calibManager.isDone() && (now - lastImuReadMs >= timeBetweenImuUplinkMessages)) {
+            latestImuData = imu.update(currentSteering);
+            lastImuReadMs = now;
 
-        EspNowManager::sendImuFeedback(imuMsg);
+            // Push IMU immediately so logger can consume a fresh sample
+            // before building its next telemetry frame.
+            ImuFeedbackMsg imuMsg = {};
+            imuMsg.type = MSG_IMU_FEEDBACK;
+            imuMsg.gForceX = latestImuData.accelX;
+            imuMsg.gForceY = latestImuData.accelY;
+            imuMsg.totalGForce = latestImuData.gForce;
+            imuMsg.gyroZ = latestImuData.gyroZ;
+            imuMsg.sampleMs = now;
+
+            EspNowManager::sendImuFeedback(imuMsg);
+        }
     }
 #endif
 
-    lv_tick_inc(now - lv_last_tick);
-    lv_last_tick = now;
+    bsp_display_lock(0);
+
+#if defined(ENABLE_IMU)
+    if (imuReady) {
+        calibManager.update();
+    }
+#endif
 
     // PPS Counter Logic
     if (now - lastPPSUpdate >= 1000) {
@@ -355,13 +382,24 @@ void loop() {
         }
 
         lastPPSUpdate = now;
+        
+#if defined(ENABLE_IMU)
+        if (imuReady) {
+            float steeringDeg = calibManager.getSteeringAngle();
+            // Update latestImuData for the log magnitude even if not pushing to uplink yet
+            latestImuData = imu.update(steeringDeg);
+            log_i("Incoming Rate: %d pkts/sec | Steering: %.1f deg | G: %.2f\n", pps, steeringDeg, latestImuData.gForce);
+        } else {
+            log_i("Incoming Rate: %d pkts/sec\n", pps);
+        }
+#else
         log_i("Incoming Rate: %d pkts/sec\n", pps);
+#endif
     }
 
     // Update UI Elements
     syncUI();
 
-    // Render Frame
-    lv_timer_handler();
+    bsp_display_unlock();
     delay(1);
 }
