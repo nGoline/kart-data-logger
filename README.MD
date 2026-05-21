@@ -42,12 +42,12 @@ The current firmware supports two primary targets:
 
 ## Hardware Requirements
 
-* ESP32-3248S035C display board
+* JC3248W535N display board
 * Seeed Studio XIAO ESP32S3 logger board
 * GPS module (u-blox or ATGM336)
 * Optional MPU6050 IMU for wheel/dashboard module
 * I2S audio amplifier and speaker
-* SD card formatted FAT32 for dashboard logging
+* microSD card formatted FAT32 (display dashboard only)
 
 ## Software Dependencies
 
@@ -82,15 +82,94 @@ In `platformio.ini`, under `[env:logger] -> build_flags`:
 
 Telemetry timing is derived from `GpsManager::getUpdateIntervalMs()`, so the logger loop cadence automatically follows the selected GPS provider.
 
+## Filesystem & Storage
+
+### Helmet Logger — LittleFS (internal flash)
+
+The logger uses **LittleFS** on the XIAO ESP32S3's internal flash for audio playback. The `data/` directory in this repository is the filesystem image that gets flashed alongside the firmware.
+
+Upload the audio filesystem with:
+
+```
+pio run -e logger -t uploadfs
+```
+
+Audio files required in the root of LittleFS:
+
+| File(s) | Purpose |
+|---|---|
+| `0.wav` – `19.wav` | Individual numbers 0–19 |
+| `20.wav`, `30.wav` … `90.wav` | Tens |
+| `100.wav`, `100toe.wav`, `200.wav` … `900.wav` | Hundreds (`100toe.wav` = "cento e…") |
+| `e.wav` | Conjunction "e" (Portuguese: "and") |
+| `ponto.wav` | Decimal separator |
+| `silence.wav` | Gap between speech segments |
+| `initializing.wav`, `wait.wav`, `ready.wav` | Boot state cues |
+| `battery_level.wav` | Battery percentage announcement |
+| `radio.wav`, `gps.wav`, `imu.wav` | Peripheral init cues |
+| `error.wav` | Error announcement |
+| `system_ready.wav` | Final ready cue |
+| `lap_time.wav`, `best_lap.wav` | Lap completion cues |
+| `up.wav`, `down.wav` | Delta direction (slower / faster) |
+| `real_car_ride.csv` | Only required when `USE_FAKE_GPS` is enabled |
+
+### Display Dashboard — SD Card
+
+The display dashboard (`env:display`) reads and writes to a **FAT32 microSD** card. No files need to be pre-populated — the display creates what it needs on first boot — but the files below may be edited on a computer for configuration.
+
+#### `/config.ini` (auto-created)
+
+Stores display preferences. Created with defaults on first boot if absent.
+
+```ini
+# Kart Data Logger Configuration
+theme=dark          # dark | light
+selected_track=0    # index into tracks.ini
+```
+
+#### `/tracks.ini` (optional, user-created)
+
+Defines named tracks with GPS finish-line coordinates. The display reads this at boot and populates the track selector in the UI. If absent, no tracks are preloaded.
+
+```ini
+# Kart track configurations
+count=2
+
+0_name=Kartódromo Granja Viana
+0_left_lat=-23.60488969
+0_left_lon=-46.83622658
+0_right_lat=-23.60493793
+0_right_lon=-46.83641597
+
+1_name=My Track
+1_left_lat=0.00000000
+1_left_lon=0.00000000
+1_right_lat=0.00000000
+1_right_lon=0.00000000
+```
+
+#### `/log_N.csv` (auto-created per session)
+
+Telemetry session logs. A new numbered file is created each time a recording session starts.
+
+```
+epoch,speed,totalGForce,gForceX,gForceY,steering_angle,sats,lat,lng
+```
+
+#### `/helmet_error.log` (auto-written)
+
+Received from the helmet logger at boot if the logger had stored errors. Overwritten each transfer.
+
 ## Setup & Installation
 
 1. Clone this repository.
 2. Open it in VSCode with PlatformIO.
 3. Edit the UI using the SquareLine Studio project files in `UIDesign/`.
 4. Export the UI to `/lib/ui/` and let `fix_stride.py` patch LVGL image metadata during build.
-5. Flash the selected firmware:
-   * `pio run -e logger -t upload`
+5. Flash the selected firmware and filesystem:
+   * `pio run -e logger -t upload` then `pio run -e logger -t uploadfs`
    * `pio run -e display -t upload`
+6. Insert a FAT32 microSD card into the display. A default `config.ini` is created on first boot.
 
 ## ESP-NOW Protocol
 
