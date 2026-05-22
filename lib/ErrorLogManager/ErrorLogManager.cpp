@@ -27,7 +27,7 @@ void ErrorLogManager::logError(const char* errorMsg) {
 
     // Add timestamp if available
     uint32_t uptime = millis();
-    file.printf("[%u] %s\n", uptime, errorMsg);
+    file.printf("[%lu] %s\n", (unsigned long)uptime, errorMsg);
     file.close();
 
     log_d("Error logged: %s", errorMsg);

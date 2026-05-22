@@ -13,25 +13,19 @@
 #ifndef LOGGING_UTILS_H
 #define LOGGING_UTILS_H
 
+#ifdef IS_LOGGER
+
 #include "ErrorLogManager.h"
 
-// Forward declaration - must be defined in main_logger.cpp
+// Defined in main_logger.cpp
 extern ErrorLogManager errorLogger;
 
-/**
- * Log an error message to the helmet error log.
- * Example: LOG_ERROR("Component initialization failed");
- */
 #define LOG_ERROR(msg) \
     do { \
         errorLogger.logError(msg); \
         log_e("%s", msg); \
     } while(0)
 
-/**
- * Log a formatted error message to the helmet error log.
- * Example: LOG_ERROR_FORMATTED("Module %s failed: %d", name, code);
- */
 #define LOG_ERROR_FORMATTED(fmt, ...) \
     do { \
         static char _errBuf[256]; \
@@ -39,5 +33,12 @@ extern ErrorLogManager errorLogger;
         errorLogger.logError(_errBuf); \
         log_e("%s", _errBuf); \
     } while(0)
+
+#else // IS_DISPLAY or any other non-logger build: serial only
+
+#define LOG_ERROR(msg)                  log_e("%s", msg)
+#define LOG_ERROR_FORMATTED(fmt, ...)   log_e(fmt, ##__VA_ARGS__)
+
+#endif
 
 #endif

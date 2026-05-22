@@ -49,6 +49,7 @@ public:
                 const char *lap_str,                   /* e.g. "1:23.74" */
                 const char *best_str);                 /* e.g. "1:23.32" */
     void setDelta(float seconds, bool faster);         /* faster = green pill */
+    void hideHelmet();                                 /* hide helmet from statusbar */
     void setHelmet(uint8_t pct);                       /* battery level */ 
     void setDisplay(uint8_t pct);                      /* battery level */
     void setGps(uint8_t pct);                          /* number of satellites */

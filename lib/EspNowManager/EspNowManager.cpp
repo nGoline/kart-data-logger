@@ -16,6 +16,8 @@ static volatile bool s_errorLogAckReceived = false;
 static volatile uint16_t s_errorLogAckLines = 0;
 static TrackConfigMsg s_lastTrackConfig = {};
 static volatile bool s_trackConfigReceived = false;
+static LapCompletedMsg s_lastLapCompleted = {};
+static volatile bool s_lapCompletedReceived = false;
 #endif
 
 #ifdef IS_DISPLAY
@@ -114,6 +116,15 @@ esp_err_t EspNowManager::sendTrackConfig(const TrackConfigMsg &msg) {
     return res;
 }
 
+esp_err_t EspNowManager::sendLapCompleted(const LapCompletedMsg &msg) {
+    uint8_t bcastAddr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    esp_err_t res = esp_now_send(bcastAddr, (uint8_t*)&msg, sizeof(msg));
+    if (res != ESP_OK) {
+        log_w("Lap completed send failed! Error code: %d", res);
+    }
+    return res;
+}
+
 esp_err_t EspNowManager::sendErrorLogAck(uint16_t linesWritten) {
     ErrorLogControlMsg msg = {};
     msg.type = MSG_ERROR_LOG_ACK;
@@ -182,6 +193,13 @@ bool EspNowManager::consumeTrackConfig(TrackConfigMsg &msg) {
     }
     msg = s_lastTrackConfig;
     s_trackConfigReceived = false;
+    return true;
+}
+
+bool EspNowManager::consumeLapCompleted(LapCompletedMsg &msg) {
+    if (!s_lapCompletedReceived) return false;
+    msg = s_lastLapCompleted;
+    s_lapCompletedReceived = false;
     return true;
 }
 
@@ -272,6 +290,14 @@ void EspNowManager::onDataRecv(const uint8_t *mac, const uint8_t *data, int len)
               s_lastTrackConfig.leftLat, s_lastTrackConfig.leftLng,
               s_lastTrackConfig.rightLat, s_lastTrackConfig.rightLng,
               (int)s_lastTrackConfig.valid);
+#endif
+    } else if (len >= (int)sizeof(LapCompletedMsg) && data[0] == MSG_LAP_COMPLETED) {
+#ifdef IS_LOGGER
+        memcpy(&s_lastLapCompleted, data, sizeof(LapCompletedMsg));
+        s_lapCompletedReceived = true;
+        log_i("Lap completed received: lapMs=%llu prevMs=%llu bestMs=%llu isBest=%d",
+              s_lastLapCompleted.lapTimeMs, s_lastLapCompleted.previousLapTimeMs,
+              s_lastLapCompleted.bestLapTimeMs, (int)s_lastLapCompleted.isBest);
 #endif
     } else {
         log_w("Received non-telemetry packet. Type: %d, Len: %d", data[0], len);

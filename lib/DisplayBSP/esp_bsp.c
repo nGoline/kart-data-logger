@@ -190,8 +190,11 @@ static bool bsp_display_sync_cb(void *arg)
     }
 
     if (tear_handle->te_v_sync_sem) {
-
-        xSemaphoreTake(tear_handle->te_v_sync_sem, portMAX_DELAY);
+        // Bounded wait: if the TE signal stops firing, don't block forever.
+        // 50 ms covers >3× the normal 60 Hz TE period (≈16 ms).
+        if (xSemaphoreTake(tear_handle->te_v_sync_sem, pdMS_TO_TICKS(50)) != pdTRUE) {
+            ESP_LOGW(TAG, "TE vsync timeout — TE signal lost, continuing without sync");
+        }
     }
     return true;
 }
