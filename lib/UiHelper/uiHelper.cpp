@@ -129,6 +129,10 @@ void UiHelper::setHelmet(uint8_t pct) {
     }
 }
 
+void UiHelper::hideHelmet() {
+    lv_obj_add_flag(ui_panelhelmet, LV_OBJ_FLAG_HIDDEN);
+}
+
 void UiHelper::setDisplay(uint8_t pct) {
     if (!ui_labelvardisplay) return;
 

@@ -2,9 +2,11 @@
 
 void LapManager::setFinishLine(const FinishLine& line) {
     _gate = line;
-    _hasLastPoint = false; // Reset when changing tracks
+    _hasLastPoint = false;
     currentLapStartTime = 0;
-    bestLapTimeMs = 0xFFFFFFFFFFFFFFFF; // Max value
+    lastLapTimeMs = 0;
+    previousLapTimeMs = 0;
+    bestLapTimeMs = 0xFFFFFFFFFFFFFFFFULL;
     log_i("LapManager: New Finish Line Set.");
 }
 

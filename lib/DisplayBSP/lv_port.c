@@ -514,7 +514,11 @@ static void lvgl_port_flush_callback(lv_display_t *disp, const lv_area_t *area, 
                 xSemaphoreGive(disp_ctx->trans_done_sem);
             }
 
-            xSemaphoreTake(disp_ctx->trans_done_sem, portMAX_DELAY);
+            if (xSemaphoreTake(disp_ctx->trans_done_sem, pdMS_TO_TICKS(500)) != pdTRUE) {
+                ESP_LOGE(TAG, "DMA transfer timeout on chunk %d — skipping frame", i);
+                lv_display_flush_ready(disp);
+                return;
+            }
             esp_lcd_panel_draw_bitmap(disp_ctx->panel_handle, x_draw_start, y_draw_start, x_draw_end + 1, y_draw_end + 1, to);
 
             if (LV_DISPLAY_ROTATION_90 == rotate) {

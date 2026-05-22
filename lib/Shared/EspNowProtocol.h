@@ -77,4 +77,13 @@ struct __attribute__((packed)) TrackConfigMsg {
     bool    valid;      // true when both points are set and finish line should be applied
 };
 
+// Display -> Logger: lap completed notification with timing data
+struct __attribute__((packed)) LapCompletedMsg {
+    uint8_t  type;              // MSG_LAP_COMPLETED
+    uint64_t lapTimeMs;         // Completed lap duration in milliseconds
+    uint64_t previousLapTimeMs; // Previous lap duration (0 on the first lap)
+    uint64_t bestLapTimeMs;     // Best lap so far (including this one)
+    bool     isBest;            // true if this lap is the new best
+};
+
 #endif

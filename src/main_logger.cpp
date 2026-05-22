@@ -7,7 +7,6 @@
 #include "AudioManager.h"
 #include "BatteryManager.h"
 #include "PowerManager.h"
-#include "LapManager.h"
 #include "VoiceParser.h"
 #include "ErrorLogManager.h"
 #include "EspNowProtocol.h"
@@ -42,7 +41,6 @@ GpsManager gps(GPS_RX, GPS_TX);
 AudioManager audio(I2S_BCLK, I2S_LRC, I2S_DIN);
 BatteryManager battery(BATT_ADC, VDIV_ENABLE_PIN, 2.0f);
 PowerManager powerManager(OFF_BUTTON_PIN, PERIPHERAL_ENABLE_PIN, HOLD_TIME_MS, 1);
-LapManager lapTimer;
 ErrorLogManager errorLogger;
 
 // --- FREERTOS QUEUE & MUTEX ---
@@ -355,12 +353,29 @@ void setup() {
 void loop() {
     powerManager.update(cachedBatteryPercentage);
 
-    TrackConfigMsg tcMsg;
-    if (EspNowManager::consumeTrackConfig(tcMsg) && tcMsg.valid) {
-        FinishLine fl = { tcMsg.leftLat, tcMsg.leftLng, tcMsg.rightLat, tcMsg.rightLng };
-        lapTimer.setFinishLine(fl);
-        log_i("Finish line updated via radio: left=(%.6f,%.6f) right=(%.6f,%.6f)",
-              fl.leftLat, fl.leftLng, fl.rightLat, fl.rightLng);
+    // Receive lap completed notifications from display and announce via audio
+    LapCompletedMsg lapMsg;
+    if (EspNowManager::consumeLapCompleted(lapMsg)) {
+        uint64_t lt = lapMsg.lapTimeMs;
+        uint64_t pt = lapMsg.previousLapTimeMs;
+
+        int minutes    = (int)(lt / 60000);
+        int seconds    = (int)((lt % 60000) / 1000);
+        int ms         = (int)(lt % 1000);
+
+        VoiceParser::announceLapTime(audio, minutes, seconds, ms, lapMsg.isBest);
+
+        if (pt > 0) {
+            int64_t delta    = (int64_t)lt - (int64_t)pt;
+            int64_t absDelta = llabs(delta);
+            int dMin = (int)(absDelta / 60000);
+            int dSec = (int)((absDelta % 60000) / 1000);
+            int dMs  = (int)(absDelta % 1000);
+            if (dMin > 0 || dSec > 0 || dMs > 0) {
+                audio.tryQueueAudio("/silence.wav");
+                VoiceParser::announceDeltaTime(audio, dMin, dSec, dMs, delta <= 0);
+            }
+        }
     }
 
     // --- IMU UPLINK PPS COUNTER ---
@@ -440,35 +455,8 @@ void loop() {
             // ==========================================
             // STATE: SYSTEM READY (NORMAL RUNNING)
             // ==========================================
-
-            // 2. Check for Lap Completion
-            if (lapTimer.processTelemetry(msg)) {
-                log_d("Lap Completed!");
-                uint64_t lt = lapTimer.getLastLapTime();
-                uint64_t bt = lapTimer.getBestLapTime();
-                uint64_t pt = lapTimer.getPreviousLapTime();
-                int minutes = lt / 60000;
-                int seconds = (lt % 60000) / 1000;
-                int millis = lt % 1000;
-                bool isBest = (lt == bt && bt != 0);
-
-                // --- ANNOUNCE LAP + DELTA ---
-                VoiceParser::announceLapTime(audio, minutes, seconds, millis, isBest);
-
-                if (pt > 0) { // Don't announce a delta on the first lap
-                    // Calculate Delta (Difference from previous lap)
-                    // We use the absolute value for the number, then add the direction
-                    int32_t delta = (int32_t)lt - (int32_t)pt;
-                    int deltaMinutes = abs(delta / 60000);
-                    int deltaSeconds = abs((delta % 60000) / 1000);
-                    int deltaMillis = abs(delta % 1000);
-
-                    if (deltaMinutes > 0 || deltaSeconds > 0 || deltaMillis > 0) {
-                        audio.tryQueueAudio("/silence.wav");
-                        VoiceParser::announceDeltaTime(audio, deltaMinutes, deltaSeconds, deltaMillis, delta <= 0);
-                    }
-                }
-            }
+            // Lap detection and audio announcements are handled by the display.
+            // The helmet receives MSG_LAP_COMPLETED and announces via audio in loop().
         }
 
         // Debug Log

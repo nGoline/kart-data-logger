@@ -32,6 +32,7 @@ public:
     static esp_err_t sendImuFeedback(const ImuFeedbackMsg &msg);
     static esp_err_t sendErrorLogAck(uint16_t linesWritten);
     static esp_err_t sendTrackConfig(const TrackConfigMsg &msg);
+    static esp_err_t sendLapCompleted(const LapCompletedMsg &msg);
     static bool consumeErrorLogStart(uint16_t &totalLines);
     static bool consumeErrorLogEnd(uint16_t &totalLines);
     static bool popErrorLogLine(ErrorLogLineMsg &msg);
@@ -40,6 +41,7 @@ public:
 
 #ifdef IS_LOGGER
     static bool consumeTrackConfig(TrackConfigMsg &msg);
+    static bool consumeLapCompleted(LapCompletedMsg &msg);
 #endif
 
 private:
