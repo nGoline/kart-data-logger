@@ -350,16 +350,18 @@ void setup() {
     startSmokeTest();
 #endif
 
-    // 8. Initialize the default finish line for lap timing (This can be updated later via a config or command)
-    FinishLine defaultFinishLine = {
-        -23.60488969289942, -46.836226585404766, // Left point (facing forward on the track)
-        -23.604937937091048, -46.836415977188466 // Right point (facing forward on the track)
-    };
-    lapTimer.setFinishLine(defaultFinishLine);
 }
 
 void loop() {
     powerManager.update(cachedBatteryPercentage);
+
+    TrackConfigMsg tcMsg;
+    if (EspNowManager::consumeTrackConfig(tcMsg) && tcMsg.valid) {
+        FinishLine fl = { tcMsg.leftLat, tcMsg.leftLng, tcMsg.rightLat, tcMsg.rightLng };
+        lapTimer.setFinishLine(fl);
+        log_i("Finish line updated via radio: left=(%.6f,%.6f) right=(%.6f,%.6f)",
+              fl.leftLat, fl.leftLng, fl.rightLat, fl.rightLng);
+    }
 
     // --- IMU UPLINK PPS COUNTER ---
 #if CORE_DEBUG_LEVEL == ARDUHAL_LOG_LEVEL_DEBUG

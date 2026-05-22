@@ -14,6 +14,8 @@ ImuFeedbackMsg EspNowManager::lastImuFeedback = {};
 uint32_t EspNowManager::imuFeedbackCounter = 0;
 static volatile bool s_errorLogAckReceived = false;
 static volatile uint16_t s_errorLogAckLines = 0;
+static TrackConfigMsg s_lastTrackConfig = {};
+static volatile bool s_trackConfigReceived = false;
 #endif
 
 #ifdef IS_DISPLAY
@@ -103,6 +105,15 @@ esp_err_t EspNowManager::sendImuFeedback(const ImuFeedbackMsg &msg) {
     return res;
 }
 
+esp_err_t EspNowManager::sendTrackConfig(const TrackConfigMsg &msg) {
+    uint8_t bcastAddr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    esp_err_t res = esp_now_send(bcastAddr, (uint8_t*)&msg, sizeof(msg));
+    if (res != ESP_OK) {
+        log_w("Track config send failed! Error code: %d", res);
+    }
+    return res;
+}
+
 esp_err_t EspNowManager::sendErrorLogAck(uint16_t linesWritten) {
     ErrorLogControlMsg msg = {};
     msg.type = MSG_ERROR_LOG_ACK;
@@ -163,6 +174,15 @@ bool EspNowManager::getLatestImuFeedback(ImuFeedbackMsg &msg, uint32_t &counter)
 void EspNowManager::resetErrorLogAckState() {
     s_errorLogAckReceived = false;
     s_errorLogAckLines = 0;
+}
+
+bool EspNowManager::consumeTrackConfig(TrackConfigMsg &msg) {
+    if (!s_trackConfigReceived) {
+        return false;
+    }
+    msg = s_lastTrackConfig;
+    s_trackConfigReceived = false;
+    return true;
 }
 
 bool EspNowManager::waitForErrorLogAck(uint16_t expectedLines, uint32_t timeoutMs, uint16_t &ackLinesOut) {
@@ -243,6 +263,15 @@ void EspNowManager::onDataRecv(const uint8_t *mac, const uint8_t *data, int len)
         s_errorLogEndLines = end.totalLines;
         s_errorLogEndEvent = true;
         log_i("Error log transfer ended (%u lines expected).", end.totalLines);
+#endif
+    } else if (len >= (int)sizeof(TrackConfigMsg) && data[0] == MSG_TRACK_CONFIG) {
+#ifdef IS_LOGGER
+        memcpy(&s_lastTrackConfig, data, sizeof(TrackConfigMsg));
+        s_trackConfigReceived = true;
+        log_i("Track config received: left=(%.6f,%.6f) right=(%.6f,%.6f) valid=%d",
+              s_lastTrackConfig.leftLat, s_lastTrackConfig.leftLng,
+              s_lastTrackConfig.rightLat, s_lastTrackConfig.rightLng,
+              (int)s_lastTrackConfig.valid);
 #endif
     } else {
         log_w("Received non-telemetry packet. Type: %d, Len: %d", data[0], len);

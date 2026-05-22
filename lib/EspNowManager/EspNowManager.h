@@ -31,10 +31,15 @@ public:
 #ifdef IS_DISPLAY
     static esp_err_t sendImuFeedback(const ImuFeedbackMsg &msg);
     static esp_err_t sendErrorLogAck(uint16_t linesWritten);
+    static esp_err_t sendTrackConfig(const TrackConfigMsg &msg);
     static bool consumeErrorLogStart(uint16_t &totalLines);
     static bool consumeErrorLogEnd(uint16_t &totalLines);
     static bool popErrorLogLine(ErrorLogLineMsg &msg);
     static uint16_t getErrorLogDroppedLines();
+#endif
+
+#ifdef IS_LOGGER
+    static bool consumeTrackConfig(TrackConfigMsg &msg);
 #endif
 
 private:
