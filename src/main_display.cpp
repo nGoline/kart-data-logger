@@ -111,6 +111,15 @@ static void processIncomingErrorLog() {
 extern "C" void ui_helper_apply_finish_line(double ll, double ln, double rl, double rn) {
     FinishLine fl = { ll, ln, rl, rn };
     lapManager.setFinishLine(fl);
+
+    TrackConfigMsg tcMsg = {};
+    tcMsg.type     = MSG_TRACK_CONFIG;
+    tcMsg.leftLat  = ll;
+    tcMsg.leftLng  = ln;
+    tcMsg.rightLat = rl;
+    tcMsg.rightLng = rn;
+    tcMsg.valid    = true;
+    EspNowManager::sendTrackConfig(tcMsg);
 }
 
 extern "C" bool ui_helper_get_gps(double *lat, double *lon) {
@@ -127,6 +136,19 @@ extern "C" void ui_helper_toggle_session() {
     } else {
         logManager.startSession();
         uiHelper.setSessionState(true);
+
+        int sel = (int)configManager.getSelectedTrack();
+        const TrackConfig *active = configManager.getTrack(sel);
+        if (active && active->left_valid && active->right_valid) {
+            TrackConfigMsg tcMsg = {};
+            tcMsg.type     = MSG_TRACK_CONFIG;
+            tcMsg.leftLat  = active->left_lat;
+            tcMsg.leftLng  = active->left_lon;
+            tcMsg.rightLat = active->right_lat;
+            tcMsg.rightLng = active->right_lon;
+            tcMsg.valid    = true;
+            EspNowManager::sendTrackConfig(tcMsg);
+        }
     }
 }
 

@@ -13,7 +13,8 @@ enum MsgType : uint8_t {
     MSG_ERROR_LOG_START   = 0x30,  // Start of error log transmission
     MSG_ERROR_LOG_LINE    = 0x31,  // Error log line (payload)
     MSG_ERROR_LOG_END     = 0x32,  // End of error log transmission
-    MSG_ERROR_LOG_ACK     = 0x33   // Acknowledge receipt of error log
+    MSG_ERROR_LOG_ACK     = 0x33,  // Acknowledge receipt of error log
+    MSG_TRACK_CONFIG      = 0x40   // Display -> Logger: active finish line
 };
 
 // 2. The Core Data Struct (The "Contract" between boards)
@@ -64,6 +65,16 @@ struct __attribute__((packed)) ErrorLogLineMsg {
 struct __attribute__((packed)) ErrorLogControlMsg {
     uint8_t type;         // MSG_ERROR_LOG_START, MSG_ERROR_LOG_END, or MSG_ERROR_LOG_ACK
     uint16_t totalLines;  // Total lines in log (for START), or lines received (for ACK)
+};
+
+// Display -> Logger: active finish line coordinates
+struct __attribute__((packed)) TrackConfigMsg {
+    uint8_t type;       // MSG_TRACK_CONFIG
+    double  leftLat;
+    double  leftLng;
+    double  rightLat;
+    double  rightLng;
+    bool    valid;      // true when both points are set and finish line should be applied
 };
 
 #endif
