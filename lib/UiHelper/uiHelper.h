@@ -51,6 +51,8 @@ public:
     void setDelta(float seconds, bool faster);         /* faster = green pill */
     void setDisplay(uint8_t pct);                      /* battery level */
     void setGps(uint8_t pct);                          /* number of satellites */
+    void setCamera(bool linked, bool recording,        /* GoPro status cell */
+                   uint8_t battPct, bool gpsLock);
     void setTheme(dash_mode_t mode);                   /* day / night swap */
     void setSessionState(bool active);                 /* updates button label + recording panel */
     void tickRecordingPanel();                         /* call every frame to drive the blink */
@@ -64,6 +66,8 @@ public:
 private:
     static uint32_t batt_color(uint8_t pct);
     static uint32_t gps_color(uint8_t n);
+    static void build_camera_cell(void);
+    static void refresh_camera(void);
     static void refresh_track_name(void);
     static void refresh_coord_row(setup_line_side_t side);
     static void refresh_dirty(void);
@@ -75,6 +79,14 @@ private:
 
     static setup_coord_t s_line_l;
     static setup_coord_t s_line_r;
+
+    /* GoPro status cell — built at runtime onto the SquareLine status bar. */
+    static lv_obj_t *s_cam_tag;
+    static lv_obj_t *s_cam_var;
+    static bool      s_cam_linked;
+    static bool      s_cam_recording;
+    static bool      s_cam_gpslock;
+    static uint8_t   s_cam_batt;
 };
 
 #endif // UI_HELPER_H

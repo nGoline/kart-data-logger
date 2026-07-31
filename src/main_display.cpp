@@ -18,6 +18,10 @@ extern "C" {
 #include "LapManager.h"
 #include "GpsManager.h"
 
+#if defined(ENABLE_GOPRO)
+#include "GoProManager.h"
+#endif
+
 #if defined(ENABLE_IMU)
 #include "ImuManager.h"
 #include "CalibrationManager.h"
@@ -34,6 +38,12 @@ UiHelper   uiHelper;
 LapManager lapManager;
 
 GpsManager gps(GPS_STANDALONE_RX, GPS_STANDALONE_TX);
+
+#if defined(ENABLE_GOPRO)
+GoProManager goPro;
+#define GOPRO_UI_INTERVAL_MS 500
+static uint32_t lastGoProUiMs = 0;
+#endif
 
 // Latest assembled telemetry frame. Written by loop() from the local GPS (plus
 // IMU when enabled), consumed by syncUI() for the dashboard and the SD log.
@@ -130,9 +140,17 @@ extern "C" void ui_helper_toggle_session() {
     if (logManager.isSessionActive()) {
         logManager.stopSession();
         uiHelper.setSessionState(false);
+#if defined(ENABLE_GOPRO)
+        goPro.setRecording(false);
+#endif
     } else {
         logManager.startSession();
         uiHelper.setSessionState(true);
+#if defined(ENABLE_GOPRO)
+        // Non-blocking: the worker connects (waking a sleeping camera) and
+        // rolls the shutter as soon as the link is up.
+        goPro.setRecording(true);
+#endif
 
         // Re-apply the active track's finish line to lapManager on session start
         int sel = (int)configManager.getSelectedTrack();
@@ -149,6 +167,9 @@ extern "C" void ui_helper_toggle_session() {
 extern "C" void ui_helper_stop_session() {
     logManager.stopSession();
     uiHelper.setSessionState(false);
+#if defined(ENABLE_GOPRO)
+    goPro.setRecording(false);
+#endif
 }
 
 void syncUI() {
@@ -269,6 +290,16 @@ void setup() {
     if (!gps.begin()) {
         log_e("GPS failed to start on RX=%d TX=%d!", GPS_STANDALONE_RX, GPS_STANDALONE_TX);
     }
+
+#if defined(ENABLE_GOPRO)
+    // BLE camera link. Pass a name fragment (e.g. "1234" from "GoPro 1234") to
+    // pin the dash to one camera when several are in range.
+    goPro.begin(
+#if defined(GOPRO_NAME_FILTER)
+        GOPRO_NAME_FILTER
+#endif
+    );
+#endif
 
     // 4. Load config from SD and apply saved theme
     configManager.begin();
@@ -409,6 +440,17 @@ void loop() {
         lastDisplayBattPct = cachedDisplayBattPct;
         uiHelper.setDisplay(cachedDisplayBattPct);
     }
+
+#if defined(ENABLE_GOPRO)
+    // Camera state is pushed by the GoPro over BLE; mirror it onto the status
+    // bar at a human rate rather than every frame. setCamera() self-filters, so
+    // an unchanged snapshot costs nothing.
+    if (now - lastGoProUiMs >= GOPRO_UI_INTERVAL_MS) {
+        lastGoProUiMs = now;
+        GoProStatus cam = goPro.status();
+        uiHelper.setCamera(cam.linked, cam.recording, cam.batteryPct, cam.gpsLock);
+    }
+#endif
 
     // Update UI Elements
     syncUI();

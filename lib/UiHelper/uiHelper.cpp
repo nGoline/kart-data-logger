@@ -13,6 +13,12 @@ int           UiHelper::s_track_idx   = 0;
 bool          UiHelper::s_dirty       = false;
 setup_coord_t UiHelper::s_line_l      = {};
 setup_coord_t UiHelper::s_line_r      = {};
+lv_obj_t     *UiHelper::s_cam_tag     = nullptr;
+lv_obj_t     *UiHelper::s_cam_var     = nullptr;
+bool          UiHelper::s_cam_linked  = false;
+bool          UiHelper::s_cam_recording = false;
+bool          UiHelper::s_cam_gpslock = false;
+uint8_t       UiHelper::s_cam_batt    = 255;
 
 /* helper */
 static inline lv_color_t C(uint32_t hex) { return lv_color_hex(hex); }
@@ -46,6 +52,11 @@ void UiHelper::init() {
     lv_obj_set_parent(ui_panelstatus, lv_layer_top());
     // Delete the now-empty Screen_TopBar to save RAM
     lv_obj_delete(ui_statusbarscreen);
+
+    // GoPro cell — added here rather than in SquareLine so the generated UI
+    // stays untouched. The status bar is a SPACE_BETWEEN flex row, so this
+    // lands between the DISP and GPS cells on its own.
+    build_camera_cell();
 
     // Set the theme as saved
     setTheme(DASH_MODE_NIGHT);
@@ -142,6 +153,86 @@ void UiHelper::setGps(uint8_t pct) {
 }
 
 /* ============================================================================
+ * GOPRO STATUS CELL
+ * Mirrors the SquareLine DISP / GPS cells so the bar stays visually uniform.
+ * Four pieces of state, one glance:
+ *   text   "--" when the camera is not linked, otherwise its battery %
+ *   colour red while recording, battery-graded otherwise
+ *   tag    green "CAM" once the camera itself has a GPS lock
+ * ============================================================================ */
+void UiHelper::build_camera_cell(void) {
+    if (!ui_panelstatus || s_cam_var) return;
+
+    lv_obj_t *panel = lv_obj_create(ui_panelstatus);
+    lv_obj_set_width (panel, LV_SIZE_CONTENT);
+    lv_obj_set_height(panel, LV_SIZE_CONTENT);
+    lv_obj_set_align (panel, LV_ALIGN_CENTER);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(panel, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(panel, C(T.bg), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(panel, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(panel, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_row(panel, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_column(panel, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    s_cam_tag = lv_label_create(panel);
+    lv_obj_set_width (s_cam_tag, LV_SIZE_CONTENT);
+    lv_obj_set_height(s_cam_tag, LV_SIZE_CONTENT);
+    lv_obj_set_align (s_cam_tag, LV_ALIGN_CENTER);
+    lv_label_set_text(s_cam_tag, "CAM");
+    lv_obj_set_style_text_letter_space(s_cam_tag, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(s_cam_tag, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    s_cam_var = lv_label_create(panel);
+    lv_obj_set_width (s_cam_var, LV_SIZE_CONTENT);
+    lv_obj_set_height(s_cam_var, LV_SIZE_CONTENT);
+    lv_obj_set_align (s_cam_var, LV_ALIGN_CENTER);
+    lv_label_set_text(s_cam_var, "--");
+    lv_obj_set_style_text_font(s_cam_var, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    /* Sit between DISP and GPS rather than after both. */
+    lv_obj_move_to_index(panel, 1);
+
+    refresh_camera();
+}
+
+void UiHelper::refresh_camera(void) {
+    if (!s_cam_var || !s_cam_tag) return;
+
+    lv_obj_set_style_text_color(s_cam_tag,
+        C(s_cam_linked && s_cam_gpslock ? T.good : T.muted), 0);
+
+    if (!s_cam_linked) {
+        lv_label_set_text(s_cam_var, "--");
+        lv_obj_set_style_text_color(s_cam_var, C(T.muted), 0);
+        return;
+    }
+
+    if (s_cam_batt == 255)
+        lv_label_set_text(s_cam_var, s_cam_recording ? "REC" : "??");
+    else if (s_cam_recording)
+        lv_label_set_text_fmt(s_cam_var, "REC %d%%", s_cam_batt);
+    else
+        lv_label_set_text_fmt(s_cam_var, "%d%%", s_cam_batt);
+
+    lv_obj_set_style_text_color(s_cam_var,
+        C(s_cam_recording ? T.bad : batt_color(s_cam_batt)), 0);
+}
+
+void UiHelper::setCamera(bool linked, bool recording, uint8_t battPct, bool gpsLock) {
+    if (linked == s_cam_linked && recording == s_cam_recording &&
+        battPct == s_cam_batt && gpsLock == s_cam_gpslock) return;   /* no-op */
+
+    s_cam_linked    = linked;
+    s_cam_recording = recording;
+    s_cam_batt      = battPct;
+    s_cam_gpslock   = gpsLock;
+    refresh_camera();
+}
+
+/* ============================================================================
  * TRACK SETUP
  * ============================================================================ */
 
@@ -183,6 +274,9 @@ void UiHelper::setDirty(bool dirty) {
  * ============================================================================ */
 void UiHelper::setTheme(dash_mode_t mode) {
     T = (mode == DASH_MODE_DAY) ? THEME_DAY : THEME_NIGHT;
+
+    /* ----- Status bar (runtime-built GoPro cell) ----- */
+    refresh_camera();
 
     /* ----- Config ----- */
     lv_obj_set_style_bg_color(ui_configscreen,      C(T.bg), LV_PART_MAIN);
