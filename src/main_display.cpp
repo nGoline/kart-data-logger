@@ -22,6 +22,20 @@ extern "C" {
 #include "GoProManager.h"
 #endif
 
+#if defined(REPLAY_CSV)
+#include "ReplayManager.h"
+// REPLAY_FROM_FLASH reads the CSV out of the on-board LittleFS partition
+// (flashed with `pio run -t uploadfs`) instead of the SD card — handy when
+// there is no card reader to hand. Otherwise it comes off the SD card.
+#if defined(REPLAY_FROM_FLASH)
+#include <LittleFS.h>
+#define REPLAY_FS LittleFS
+#else
+#include <SD_MMC.h>
+#define REPLAY_FS SD_MMC
+#endif
+#endif
+
 #if defined(ENABLE_IMU)
 #include "ImuManager.h"
 #include "CalibrationManager.h"
@@ -43,6 +57,33 @@ GpsManager gps(GPS_STANDALONE_RX, GPS_STANDALONE_TX);
 GoProManager goPro;
 #define GOPRO_UI_INTERVAL_MS 500
 static uint32_t lastGoProUiMs = 0;
+#endif
+
+#if defined(REPLAY_CSV)
+// Bench mode: telemetry comes from a recorded CSV on the SD card instead of the
+// GPS. Lap/best/delta are unaffected by playback rate because LapManager works
+// off the epoch column, not millis().
+ReplayManager replay;
+#ifndef REPLAY_RATE
+#define REPLAY_RATE 1.0f      // 1.0 = real time; raise it to fast-forward
+#endif
+#ifndef REPLAY_LOOP
+#define REPLAY_LOOP true
+#endif
+#ifndef REPLAY_SKIP_S
+#define REPLAY_SKIP_S 0       // seconds of pit lead-in to skip
+#endif
+// Replay owns its own finish line, so it never touches your saved tracks. The
+// PIN buttons on the track screen capture *current* GPS — which in replay mode
+// is the recording's fix — so pinning while a replay runs would overwrite a
+// real track's coordinates. Defaults to the gate for the bundled Granja Viana
+// session; the selected track is ignored entirely while replaying.
+#ifndef REPLAY_FINISH_LL
+#define REPLAY_FINISH_LL -23.605392
+#define REPLAY_FINISH_LN -46.836045
+#define REPLAY_FINISH_RL -23.605442
+#define REPLAY_FINISH_RN -46.836251
+#endif
 #endif
 
 // Latest assembled telemetry frame. Written by loop() from the local GPS (plus
@@ -140,18 +181,23 @@ extern "C" void ui_helper_toggle_session() {
     if (logManager.isSessionActive()) {
         logManager.stopSession();
         uiHelper.setSessionState(false);
-#if defined(ENABLE_GOPRO)
+#if defined(ENABLE_GOPRO) && !defined(REPLAY_CSV)
         goPro.setRecording(false);
 #endif
     } else {
         logManager.startSession();
         uiHelper.setSessionState(true);
-#if defined(ENABLE_GOPRO)
+#if defined(ENABLE_GOPRO) && !defined(REPLAY_CSV)
         // Non-blocking: the worker connects (waking a sleeping camera) and
         // rolls the shutter as soon as the link is up.
         goPro.setRecording(true);
 #endif
 
+#if defined(REPLAY_CSV)
+        // Replay pins its own gate at boot — don't let the selected track
+        // (which is a real track, somewhere else entirely) replace it.
+        s_lapCount = 0;
+#else
         // Re-apply the active track's finish line to lapManager on session start
         int sel = (int)configManager.getSelectedTrack();
         const TrackConfig *active = configManager.getTrack(sel);
@@ -161,13 +207,14 @@ extern "C" void ui_helper_toggle_session() {
             lapManager.setFinishLine(fl);
             s_lapCount = 0;
         }
+#endif
     }
 }
 
 extern "C" void ui_helper_stop_session() {
     logManager.stopSession();
     uiHelper.setSessionState(false);
-#if defined(ENABLE_GOPRO)
+#if defined(ENABLE_GOPRO) && !defined(REPLAY_CSV)
     goPro.setRecording(false);
 #endif
 }
@@ -188,9 +235,12 @@ void syncUI() {
         uiHelper.setGy(telemetry.gForceY);
 
         // 2. Push to SD Log Queue — only when a session is active to avoid stale data
+#if !defined(REPLAY_CSV)
         if (LogManager::logQueue != NULL && logManager.isSessionActive()) {
             xQueueSend(LogManager::logQueue, &telemetry, 0);
         }
+#endif  // replay: don't re-log what we are reading, and keep the SD read
+        // uncontended by a concurrent append from the logging task.
 
         uiHelper.setSpeed(telemetry.speedKmph);
 
@@ -287,11 +337,38 @@ void setup() {
     logManager.begin();
     displayBattery.begin();
 
+#if defined(REPLAY_CSV)
+    // Bench replay: the GPS is not used at all, and the camera is left asleep.
+    // SD_MMC is already mounted by logManager.begin(); LittleFS is not, so
+    // mount it here when reading the replay out of flash.
+#if defined(REPLAY_FROM_FLASH)
+    if (!LittleFS.begin(false)) {
+        log_e("REPLAY: LittleFS mount failed — did you run 'pio run -t uploadfs'?");
+    }
+#endif
+    if (!replay.begin(REPLAY_FS, REPLAY_CSV, REPLAY_RATE, REPLAY_LOOP, REPLAY_SKIP_S)) {
+        log_e("REPLAY: could not open %s — is it on the SD card?", REPLAY_CSV);
+    } else {
+        log_w("=== REPLAY MODE: %s at %.1fx — GPS and GoPro are disabled ===",
+              REPLAY_CSV, (double)REPLAY_RATE);
+    }
+    {
+        // Pin the replay's own gate, independent of whatever track is selected.
+        FinishLine fl = { REPLAY_FINISH_LL, REPLAY_FINISH_LN,
+                          REPLAY_FINISH_RL, REPLAY_FINISH_RN };
+        lapManager.setFinishLine(fl);
+        log_w("REPLAY: finish line pinned to %.6f,%.6f -> %.6f,%.6f "
+              "(your saved tracks are untouched)",
+              (double)REPLAY_FINISH_LL, (double)REPLAY_FINISH_LN,
+              (double)REPLAY_FINISH_RL, (double)REPLAY_FINISH_RN);
+    }
+#else
     if (!gps.begin()) {
         log_e("GPS failed to start on RX=%d TX=%d!", GPS_STANDALONE_RX, GPS_STANDALONE_TX);
     }
+#endif
 
-#if defined(ENABLE_GOPRO)
+#if defined(ENABLE_GOPRO) && !defined(REPLAY_CSV)
     // BLE camera link. Pass a name fragment (e.g. "1234" from "GoPro 1234") to
     // pin the dash to one camera when several are in range.
     goPro.begin(
@@ -367,6 +444,13 @@ void loop() {
     }
 #endif
 
+#if defined(REPLAY_CSV)
+    // Bench replay: pull the next recorded sample instead of reading the GPS.
+    // Everything downstream (lap detection, best lap, delta) is untouched.
+    if (replay.update(telemetry)) {
+        newTelemetryAvailable = true;
+    }
+#else
     // Poll the local GPS and assemble the telemetry frame consumed by syncUI().
     if (gps.update()) {
         float imuG = 0.0f, imuGyroZ = 0.0f, imuGx = 0.0f, imuGy = 0.0f;
@@ -391,6 +475,7 @@ void loop() {
         telemetry.timestamp   = gps.getEpochMs();
         newTelemetryAvailable = true;
     }
+#endif
 
     // Display battery ADC read — done before the display lock to avoid blocking LVGL
     static uint8_t cachedDisplayBattPct = 255;
