@@ -1,8 +1,17 @@
 # Name,   Type, SubType, Offset,  Size, Flags
+#
+# 'model' is reserved space for a future offline voice model (lib/VoiceParser)
+# and is deliberately NOT subtype 'spiffs'. PlatformIO picks the filesystem
+# partition by scanning for type=data with subtype spiffs/fat/littlefs and
+# keeping the LAST match (builder/main.py: fetch_fs_size assigns without a
+# break). With two spiffs partitions, 'pio run -t uploadfs' silently wrote to
+# 'model' at 0xD10000 while LittleFS.begin() mounted the partition *labelled*
+# 'spiffs' at 0x610000 and failed with error -1. Subtype 'undefined' keeps the
+# space reserved without shadowing the real filesystem.
 nvs,      data, nvs,       0x9000,   0x5000,
 otadata,  data, ota,       0xe000,   0x2000,
 app0,     app,  ota_0,    0x10000, 0x300000,
 app1,     app,  ota_1,   0x310000, 0x300000,
 spiffs,   data, spiffs,  0x610000, 0x700000,
-model,    data, spiffs,  0xD10000, 0x2E0000,
+model,    data, undefined, 0xD10000, 0x2E0000,
 coredump, data, coredump,0xFF0000,  0x10000,

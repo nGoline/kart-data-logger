@@ -15,3 +15,8 @@ hardware/**/gbr
 hardware/**/.history/
 video/
 __pycache__/
+
+# Replay CSVs generated from the committed raw GPMF dumps by
+# tools/lapreplay/gps_raw_to_log.py — regenerable, so not tracked.
+data/replay.csv
+tools/data/replay_*.csv
