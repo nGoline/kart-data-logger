@@ -20,6 +20,8 @@ std::unique_ptr<IGpsProvider> GpsManager::createProvider(int8_t rxPin, int8_t tx
 bool GpsManager::begin() { return _provider->begin(); }
 bool GpsManager::update() { return _provider->update(); }
 void GpsManager::end() { _provider->end(); }
+void GpsManager::standby() { _provider->standby(); }
+void GpsManager::wake() { _provider->wake(); }
 
 double GpsManager::getLat() { return _provider->getLat(); }
 double GpsManager::getLng() { return _provider->getLng(); }

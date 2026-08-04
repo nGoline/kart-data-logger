@@ -11,6 +11,15 @@ public:
     virtual bool update() = 0;
     virtual void end() = 0;
 
+    /* Quiesce the receiver and bring it back. Optional: a provider with no
+     * support keeps the defaults and stays fully powered.
+     *
+     * Note this is not necessarily sleep. On the CASIC part fitted here there
+     * is no software power-down at all, so standby() only reduces how much work
+     * the receiver does and silences its output. */
+    virtual void standby() {}
+    virtual void wake() {}
+
     virtual double getLat() = 0;
     virtual double getLng() = 0;
     virtual double getSpeed(float gForce, float gyroZ) = 0;

@@ -52,6 +52,11 @@ public:
                 const char *best_str);                 /* e.g. "1:23.32" */
     void setDelta(float seconds, bool faster);         /* faster = green pill */
     void setDisplay(uint8_t pct);                      /* battery level */
+
+    /* --- Charge mode --- */
+    void showChargeScreen();                           /* swap to the charge screen, hide status bar */
+    void hideChargeScreen();                           /* return to the dashboard */
+    void setChargeBattery(uint8_t pct, float volts);   /* refresh the charge readout */
     void setGps(uint8_t pct);                          /* number of satellites */
     void setCamera(bool linked, bool recording,        /* GoPro status cell */
                    uint8_t battPct, bool gpsLock);
@@ -91,6 +96,8 @@ private:
     static void refresh_wifi(void);
     static lv_obj_t *make_setup_button(const char *text, lv_event_cb_t cb,
                                        lv_obj_t **out_label);
+    static void build_charge_screen(void);             /* hand-built; not a SquareLine export */
+    static void build_charge_mode_button(void);        /* injected into the config screen at runtime */
     static void refresh_track_name(void);
     static void refresh_coord_row(setup_line_side_t side);
     static void refresh_dirty(void);
@@ -131,6 +138,11 @@ private:
     static bool      s_wifi_running;
     static uint8_t   s_wifi_clients;
     static char      s_wifi_ip[20];
+
+    /* Charge mode — a hand-built parking screen, see uiHelper.cpp. */
+    static lv_obj_t *s_charge_screen;
+    static lv_obj_t *s_charge_pct;
+    static lv_obj_t *s_charge_volts;
 };
 
 #endif // UI_HELPER_H

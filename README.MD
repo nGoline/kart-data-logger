@@ -40,7 +40,40 @@ seen with the esp_lcd path.
 * **`fix_stride.py` prebuild patch** for SquareLine Studio LVGL 9 image exports.
 * **Display-wedge watchdog** — a 5s task watchdog on `loopTask` turns a panel
   wedge into a fast auto-reset instead of a permanent freeze.
+* **Charge mode** to keep the board from eating the charger's current budget.
 * **Optional IMU support** to improve speed filtering and live telemetry.
+
+## Charge mode
+
+The charger's current is shared between the board and the cell, so a running
+dashboard slows charging considerably. Charge mode parks the device:
+
+* Stops the recording session and closes the GPS UART.
+* Drops the CPU to 80 MHz (the floor for stable USB-CDC — don't go lower).
+* Swaps to a minimal charge screen and blanks the backlight after 15s.
+
+It is **only ever entered manually**, from the `CHARGE MODE` button on the
+config screen. Nothing enters it automatically, so bench testing and debugging
+are unaffected.
+
+While parked: tap anywhere to wake the backlight and read the battery for
+another 15s; press `RESUME` to leave. Resuming re-probes the GPS, which takes a
+couple of seconds.
+
+> **The GPS module keeps running.** `gps.end()` only closes the ESP32's UART —
+> the ATGM336 has no power gating on this board, so it continues drawing
+> ~25-40 mA. Cutting it needs a `$PCAS12` standby command or a load switch on
+> its VCC, neither of which is wired yet.
+
+> **The percentage reads high while charging.** With no power-path charger the
+> sense divider sits on the charger rail, so it measures the cell terminal
+> voltage *under charge*, which is well above its resting value — expect a
+> jump downward when you unplug. It's shown as `~94%` to mark it approximate;
+> the voltage below it is the number to trust.
+
+The charge screen and the config-screen button are both built at runtime in
+`lib/UiHelper/uiHelper.cpp` rather than exported from SquareLine, so
+re-exporting `lib/ui/` will not wipe them.
 
 ## Hardware Requirements
 

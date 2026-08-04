@@ -14,6 +14,12 @@ public:
     bool update();
     void end();
 
+    /* Quiesce the receiver for charge mode, and restore it afterwards. Note
+     * end() only closes the ESP32's UART; the module keeps running regardless,
+     * and on this hardware it cannot be powered down in software at all. */
+    void standby();
+    void wake();
+
     double getLat();
     double getLng();
     double getSpeed(float gForce, float gyroZ);

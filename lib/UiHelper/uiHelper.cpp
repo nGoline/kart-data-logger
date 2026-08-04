@@ -30,6 +30,10 @@ bool          UiHelper::s_wifi_running = false;
 uint8_t       UiHelper::s_wifi_clients = 0;
 char          UiHelper::s_wifi_ip[20]  = {0};
 
+lv_obj_t *UiHelper::s_charge_screen = nullptr;
+lv_obj_t *UiHelper::s_charge_pct    = nullptr;
+lv_obj_t *UiHelper::s_charge_volts  = nullptr;
+
 /* helper */
 static inline lv_color_t C(uint32_t hex) { return lv_color_hex(hex); }
 
@@ -45,6 +49,12 @@ static void dash_speed_cb(lv_event_t *e) {
 extern "C" void ui_helper_set_theme(int mode) {
     if (s_instance) s_instance->setTheme(mode == 0 ? DASH_MODE_NIGHT : DASH_MODE_DAY);
 }
+
+/* Implemented in src/main_display.cpp. These only ever set a flag — the real
+ * work (GPS teardown, CPU rescaling) happens in loop(), never in LVGL context. */
+extern "C" void ui_helper_enter_charge_mode(void);
+extern "C" void ui_helper_exit_charge_mode(void);
+extern "C" void ui_helper_charge_screen_touched(void);
 
 void UiHelper::init() {
     s_instance = this;
@@ -124,7 +134,163 @@ void UiHelper::init() {
     refresh_coord_row(SETUP_LINE_R);
     refresh_dirty();
 
+    // Charge mode UI. Both are built by hand rather than exported from
+    // SquareLine, so re-exporting lib/ui/ does not wipe them.
+    build_charge_screen();
+    build_charge_mode_button();
+
     bsp_display_unlock();
+}
+
+/* ============================================================================
+ * CHARGE MODE
+ *
+ * Both the charge screen and the config-screen button are built here at runtime
+ * rather than exported from SquareLine, so a re-export of lib/ui/ cannot wipe
+ * them. That is a workaround — they belong in the SquareLine project.
+ *
+ * When migrating:
+ *  - Widen Barlow60's character range in SquareLine to include '%' (0x25). The
+ *    current export is digits-only (cmap 46..58), which is why the percentage
+ *    label had to drop to Barlow48 to avoid a missing-glyph box.
+ *  - Delete build_charge_screen() / build_charge_mode_button() and repoint
+ *    show/hide/setChargeBattery at the generated ui_* globals.
+ *  - Keep the generated button's callback trivial. It must only set a flag:
+ *    entering/leaving charge mode blocks for seconds (gps.begin() probes two
+ *    baud rates), which would wedge the LVGL task while it holds the display
+ *    lock. See the bridges in src/main_display.cpp.
+ * ============================================================================ */
+
+/* CHARGE MODE button, appended to the config screen's button column. */
+void UiHelper::build_charge_mode_button(void) {
+    if (!ui_panelsetupbuttons) return;
+
+    lv_obj_t *btn = lv_button_create(ui_panelsetupbuttons);
+    lv_obj_set_width(btn, 250);
+    lv_obj_set_height(btn, 50);
+    lv_obj_set_align(btn, LV_ALIGN_TOP_MID);
+    lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_ext_click_area(btn, 5);
+    lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(btn, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(btn, C(0x1A1D23), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(btn, C(0x6B7280), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(btn, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *lbl = lv_label_create(btn);
+    lv_obj_set_width(lbl, LV_SIZE_CONTENT);
+    lv_obj_set_height(lbl, LV_SIZE_CONTENT);
+    lv_obj_set_align(lbl, LV_ALIGN_LEFT_MID);
+    lv_label_set_text(lbl, "CHARGE MODE");
+    lv_obj_set_style_text_color(lbl, C(0xF6F8FB), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(lbl, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl, &ui_font_BarlowCondensedBold32, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_helper_enter_charge_mode();
+    }, LV_EVENT_CLICKED, NULL);
+}
+
+/* Charge screen: big battery readout plus an explicit RESUME button. A tap
+ * anywhere else only wakes the backlight — it must not leave charge mode. */
+void UiHelper::build_charge_screen(void) {
+    s_charge_screen = lv_obj_create(NULL);
+    lv_obj_remove_flag(s_charge_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(s_charge_screen, C(0x050608), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_charge_screen, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_charge_screen, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Any press on the screen background wakes the backlight.
+    lv_obj_add_event_cb(s_charge_screen, [](lv_event_t *e) {
+        if (lv_event_get_code(e) == LV_EVENT_PRESSED) ui_helper_charge_screen_touched();
+    }, LV_EVENT_PRESSED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_charge_screen);
+    lv_label_set_text(title, "CHARGING");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 28);
+    lv_obj_set_style_text_color(title, C(0xFFD400), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(title, &ui_font_BarlowCondensedBold32, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Barlow60/52/200 are digits-only subsets (cmap 46..58 / 48..57) — a '%'
+    // renders as a missing-glyph box. Barlow48 carries full ASCII 32..126.
+    s_charge_pct = lv_label_create(s_charge_screen);
+    lv_label_set_text(s_charge_pct, "--%");
+    lv_obj_align(s_charge_pct, LV_ALIGN_CENTER, 0, -22);
+    lv_obj_set_style_text_color(s_charge_pct, C(0xF6F8FB), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(s_charge_pct, &ui_font_BarlowCondensedBold48, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Voltage is the number to trust here: the percentage is derived from the
+    // charger rail while plugged in, so it reads high. See setChargeBattery().
+    s_charge_volts = lv_label_create(s_charge_screen);
+    lv_label_set_text(s_charge_volts, "--.-- V");
+    lv_obj_align(s_charge_volts, LV_ALIGN_CENTER, 0, 24);
+    lv_obj_set_style_text_color(s_charge_volts, C(0xCBD0D8), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(s_charge_volts, &lv_font_montserrat_24, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *hint = lv_label_create(s_charge_screen);
+    lv_label_set_text(hint, "tap to wake the screen");
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -76);
+    lv_obj_set_style_text_color(hint, C(0x6B7280), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *resume = lv_button_create(s_charge_screen);
+    lv_obj_set_width(resume, 200);
+    lv_obj_set_height(resume, 50);
+    lv_obj_align(resume, LV_ALIGN_BOTTOM_MID, 0, -14);
+    lv_obj_set_flex_flow(resume, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(resume, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_ext_click_area(resume, 8);
+    lv_obj_remove_flag(resume, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(resume, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(resume, C(0x1A1D23), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(resume, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(resume, C(0xFFD400), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(resume, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(resume, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *rlbl = lv_label_create(resume);
+    lv_label_set_text(rlbl, "RESUME");
+    lv_obj_set_style_text_color(rlbl, C(0xF6F8FB), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(rlbl, &ui_font_BarlowCondensedBold32, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Wake the backlight on press, leave charge mode on release. Without the
+    // PRESSED half, tapping RESUME while the backlight is off would exit blind.
+    lv_obj_add_event_cb(resume, [](lv_event_t *e) {
+        lv_event_code_t code = lv_event_get_code(e);
+        if (code == LV_EVENT_PRESSED)      ui_helper_charge_screen_touched();
+        else if (code == LV_EVENT_CLICKED) ui_helper_exit_charge_mode();
+    }, LV_EVENT_ALL, NULL);
+}
+
+void UiHelper::showChargeScreen() {
+    if (!s_charge_screen) return;
+    // The status bar lives on the top layer, so it would float over the
+    // charge screen unless it is explicitly hidden.
+    if (ui_panelstatus) lv_obj_add_flag(ui_panelstatus, LV_OBJ_FLAG_HIDDEN);
+    lv_screen_load(s_charge_screen);
+}
+
+void UiHelper::hideChargeScreen() {
+    if (ui_panelstatus) lv_obj_remove_flag(ui_panelstatus, LV_OBJ_FLAG_HIDDEN);
+    if (ui_dashboardscreen) lv_screen_load(ui_dashboardscreen);
+}
+
+void UiHelper::setChargeBattery(uint8_t pct, float volts) {
+    if (!s_charge_pct) return;
+    if (pct == 255) {
+        lv_label_set_text(s_charge_pct, "--%");
+    } else {
+        // Leading '~': with no power-path charger the sense divider sits on the
+        // charger rail, so this is the cell terminal voltage *under charge* and
+        // reads well above its resting value. Marked approximate rather than
+        // faked with an offset. ('~' is U+007E, inside Barlow48's ASCII range.)
+        lv_label_set_text_fmt(s_charge_pct, "~%d%%", pct);
+        lv_obj_set_style_text_color(s_charge_pct, C(batt_color(pct)), 0);
+    }
+    if (s_charge_volts) lv_label_set_text_fmt(s_charge_volts, "%.2f V", volts);
 }
 
 /* ============================================================================

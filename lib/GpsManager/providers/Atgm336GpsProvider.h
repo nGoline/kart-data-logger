@@ -16,6 +16,8 @@ public:
     bool begin() override;
     bool update() override;
     void end() override;
+    void standby() override;
+    void wake() override;
 
     double getLat() override;
     double getLng() override;
@@ -32,6 +34,7 @@ private:
     HardwareSerial _serialGps;
 
     uint32_t _currentBaud = 115200;
+
 
     void sendPCAS(char* msgID, char* payload);
     void configureAtgm336(bool hasPendingConfigChanges);

@@ -138,6 +138,35 @@ static void applySectorGates(const TrackConfig *t) {
 }
 
 // ============================================================================
+// CHARGE MODE
+// Entered only from the CHARGE MODE button on the config screen — never
+// automatically — so debugging and bench testing are unaffected.
+// Parks the device so the charger's current budget goes to the cell instead of
+// the load: GPS off, session stopped, CPU down, backlight on a timeout.
+// ============================================================================
+#define CHARGE_CPU_MHZ              80     // USB-CDC needs >= 80MHz; do not go lower
+#define NORMAL_CPU_MHZ              240
+#define CHARGE_BACKLIGHT_TIMEOUT_MS 15000  // both on entry and after a tap
+#define CHARGE_BATT_INTERVAL_MS     5000
+#define CHARGE_LOOP_DELAY_MS        50
+
+static bool s_chargeMode         = false;
+static bool s_chargeBacklightOn  = false;
+static uint32_t s_chargeBacklightOnMs = 0;
+static uint32_t s_chargeBattReadMs    = 0;
+
+// Set from LVGL event callbacks, consumed in loop(). The callbacks must stay
+// trivial: entering/leaving charge mode blocks for seconds, which would wedge
+// the LVGL task while it holds the display lock.
+static volatile bool s_chargeEnterPending = false;
+static volatile bool s_chargeExitPending  = false;
+static volatile bool s_chargeTouchPending = false;
+
+extern "C" void ui_helper_enter_charge_mode(void) { s_chargeEnterPending = true; }
+extern "C" void ui_helper_exit_charge_mode(void)  { s_chargeExitPending  = true; }
+extern "C" void ui_helper_charge_screen_touched(void) { s_chargeTouchPending = true; }
+
+// ============================================================================
 // DISPLAY-WEDGE SAFETY NET (ALWAYS ON) - "indestructible" recovery.
 // The AXS15231B QSPI panel write (panel_axs15231b_draw_bitmap) can occasionally
 // hang the LVGL task while it holds the display lock, which would otherwise
@@ -453,10 +482,115 @@ void setup() {
     log_i("Display System Ready.");
 }
 
+static void enterChargeMode() {
+    // gps.standby() rather than gps.end(): end() only closes the ESP32's UART
+    // and leaves the module tracking three constellations at 10 Hz, which is
+    // why this mode never saved much. The UART stays open so wake() can talk to
+    // it again.
+    //
+    // Be clear about the ceiling: this receiver has no software power-down at
+    // all, so its RF front end keeps drawing whatever it draws. Charge mode's
+    // real savings are the backlight and the CPU clock.
+    log_i("Charge mode: parking device (GPS quiesced, CPU %dMHz).",
+          CHARGE_CPU_MHZ);
+
+    logManager.stopSession();
+    gps.standby();
+
+    bsp_display_lock(0);
+    uiHelper.setSessionState(false);
+    uiHelper.setChargeBattery(255, 0.0f);
+    uiHelper.showChargeScreen();
+    bsp_display_unlock();
+
+    // Drop the clock only after the screen swap has been handed to LVGL, so the
+    // transition still renders at full speed.
+    setCpuFrequencyMhz(CHARGE_CPU_MHZ);
+
+    bsp_display_backlight_on();
+    s_chargeBacklightOn   = true;
+    s_chargeBacklightOnMs = millis();
+    s_chargeBattReadMs    = 0;     // force a reading on the first service pass
+    s_chargeMode          = true;
+}
+
+static void exitChargeMode() {
+    setCpuFrequencyMhz(NORMAL_CPU_MHZ);
+    bsp_display_backlight_on();
+    s_chargeBacklightOn = true;
+
+    // wake() restores the constellation, message set and fix rate, then lets
+    // configureAtgm336() verify. It takes ~2.5s, which is close enough to the 5s
+    // loopTask watchdog to be worth stepping out of it.
+    //
+    // No gps.begin() here: the UART was never closed and the module was never
+    // asleep, so there is nothing to re-probe. Probing was in fact harmful — it
+    // ran while the port was already open ("RX Buffer can't be resized") and,
+    // if the sentences had not come back, reported the module as missing.
+    esp_task_wdt_delete(NULL);
+    gps.wake();
+    esp_task_wdt_add(NULL);
+
+    bsp_display_lock(0);
+    uiHelper.hideChargeScreen();
+    bsp_display_unlock();
+
+    s_chargeMode = false;
+    log_i("Charge mode: resumed at %dMHz.", NORMAL_CPU_MHZ);
+}
+
+static void serviceChargeMode(uint32_t now) {
+    // A tap anywhere wakes the backlight and restarts the timeout.
+    if (s_chargeTouchPending) {
+        s_chargeTouchPending = false;
+        if (!s_chargeBacklightOn) {
+            bsp_display_backlight_on();
+            s_chargeBacklightOn = true;
+        }
+        s_chargeBacklightOnMs = now;
+    }
+
+    if (s_chargeBacklightOn && (now - s_chargeBacklightOnMs >= CHARGE_BACKLIGHT_TIMEOUT_MS)) {
+        bsp_display_backlight_off();
+        s_chargeBacklightOn = false;
+    }
+
+    if (now - s_chargeBattReadMs >= CHARGE_BATT_INTERVAL_MS) {
+        s_chargeBattReadMs = now;
+        float volts  = displayBattery.getVoltage();
+        uint8_t pct  = (uint8_t)displayBattery.getPercentage();
+
+        bsp_display_lock(0);
+        uiHelper.setChargeBattery(pct, volts);
+        bsp_display_unlock();
+
+        log_i("Charge mode: %d%% (%.2fV)", pct, volts);
+    }
+}
+
 void loop() {
     uint32_t now = millis();
 
     esp_task_wdt_reset();   // feed the display-wedge watchdog (always on)
+
+    // Transitions run here, never in LVGL callback context.
+    if (s_chargeEnterPending) {
+        s_chargeEnterPending = false;
+        if (!s_chargeMode) enterChargeMode();
+    }
+    if (s_chargeExitPending) {
+        s_chargeExitPending = false;
+        if (s_chargeMode) exitChargeMode();
+    }
+
+    // Ahead of everything below on purpose: charge mode is a parking state, so
+    // it must not fall through to session analysis (a multi-second SD stream)
+    // or the dashboard repaint. Both would defeat the point of the mode.
+    if (s_chargeMode) {
+        serviceChargeMode(now);
+        delay(CHARGE_LOOP_DELAY_MS);
+        return;
+    }
 
     // Session analysis runs here, deliberately before the display lock is
     // taken: streaming a log takes many seconds, and doing it while holding the

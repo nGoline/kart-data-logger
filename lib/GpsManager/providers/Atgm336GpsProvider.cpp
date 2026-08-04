@@ -67,6 +67,54 @@ void Atgm336GpsProvider::end() {
     _serialGps.end();
 }
 
+/* Quiesce the receiver. This is NOT sleep: $PCAS12 standby is a 5L-only
+ * feature and this is a 5N, and the binary CFG set has no power message at all,
+ * so the RF front end keeps running whatever we do. What can be cut is the work
+ * it does and the talking it does about it:
+ *
+ *   $PCAS04,1     GPS only, instead of GPS+BDS+GLONASS
+ *   $PCAS02,1000  1 Hz instead of 10 Hz
+ *   $PCAS03,0...  every NMEA sentence off
+ *
+ * Deliberately not saved to flash ($PCAS00): this is a temporary state, and a
+ * power cycle should come back configured normally.
+ *
+ * Field order for PCAS03 is nGGA,nGLL,nGSA,nGSV,nRMC,nVTG,nZDA,nANT,nDHV,nLPS,
+ * res1,res2,nUTC,nGST,res3,res4,res5,nTIM; blank fields keep their setting. */
+void Atgm336GpsProvider::standby() {
+    sendPCAS("04", "1");
+    delay(20);
+    sendPCAS("02", "1000");
+    delay(20);
+    sendPCAS("03", "0,0,0,0,0,0,0,0,0,0,,,0,0,,,,0");
+    delay(20);
+
+    /* Whatever was still mid-flight when the sentences were switched off. */
+    while (_serialGps.available() > 0) _serialGps.read();
+
+    log_i("GPS: quiesced (GPS-only, 1Hz, NMEA off)");
+}
+
+/* Undo standby(). The sentence set MUST be restored explicitly here rather than
+ * left to configureAtgm336(): that function decides what to fix by reading the
+ * NMEA coming back, and with output switched off it sees nothing, concludes all
+ * is well, and never re-enables anything. The module then stays mute and the
+ * next begin() reports it missing — exactly the "not responding at 115200 or
+ * 9600" failure seen on the first resume attempt. */
+void Atgm336GpsProvider::wake() {
+    sendPCAS("03", "1,0,1,0,1,1,0,0,0,0,,,0,0,,,,0");
+    delay(20);
+    sendPCAS("02", "100");
+    delay(20);
+    sendPCAS("04", "7");
+    delay(120);
+
+    log_i("GPS: restored (GPS+BDS+GLONASS, 10Hz, NMEA on)");
+
+    /* Now that it is talking again, let the usual path verify and correct. */
+    configureAtgm336(false);
+}
+
 void Atgm336GpsProvider::sendPCAS(char* msgID, char* payload) {
     const char* prefix = "PCAS";
     const char separator = ',';
@@ -90,6 +138,7 @@ void Atgm336GpsProvider::sendPCAS(char* msgID, char* payload) {
         _serialGps.write(&separator, 1);
         checksum ^= separator;
         for (int i = 0; payload[i] != '\0'; i++) {
+            log_i("payload %d => %x", i, payload[i]);
             _serialGps.write(payload[i]);
             checksum ^= payload[i];
         }
@@ -150,6 +199,10 @@ void Atgm336GpsProvider::configureAtgm336(bool hasPendingConfigChanges) {
     }
 
     if (hasPendingConfigChanges) {
+        // Since the config seems to be off, let's make sure it's targeting GPS + BDS + GLONASS
+        // CAS04 Configure the working system
+        sendPCAS("04", "7");
+
         log_i("Saving ATGM336 configuration to flash...");
         // CAS00 Save settings to flash
         sendPCAS("00", "");
