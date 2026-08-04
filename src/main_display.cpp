@@ -336,15 +336,20 @@ void syncUI() {
 void setup() {
     Serial.begin(115200);
 #if ARDUINO_USB_CDC_ON_BOOT == 1
+    // FIRST, before anything can write a byte, and before setDebugOutput routes
+    // the IDF log here. With no host draining the port — the normal case in the
+    // kart, and equally a USB cable with no monitor open — the CDC buffer fills
+    // and log_*() BLOCKS the calling task, leaving the dash dark until a serial
+    // monitor connects.
+    //
+    // This cannot protect the Arduino core's own boot banner: printBeforeSetupInfo()
+    // runs before setup() is ever called, so its few hundred lines block with the
+    // default timeout. That one is silenced by keeping CORE_DEBUG_LEVEL below
+    // DEBUG — see the note in platformio.ini.
+    Serial.setTxTimeoutMs(0);
     delay(2000);
 #endif
     Serial.setDebugOutput(true);
-#if ARDUINO_USB_CDC_ON_BOOT == 1
-    // Non-blocking USB-CDC TX: with no host draining the port (the normal case in
-    // the kart), the CDC buffer fills and log_*() would otherwise BLOCK the calling
-    // task — freezing the dash until a serial monitor reconnects. Drop instead.
-    Serial.setTxTimeoutMs(0);
-#endif
 
     log_i("--- KART DISPLAY BOOTING ---");
 
