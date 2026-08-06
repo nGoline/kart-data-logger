@@ -111,10 +111,14 @@ uint32_t lastImuReadMs = 0;
 #endif
 
 // Display battery: BAT+ → 68k (683) → IO5 → 100k (01D) → GND (always-on divider)
-// Theoretical ratio (68+100)/100 = 1.68, but empirical 4.224/2.47 = 1.71 absorbs the ~30mV ADC offset.
+// Theoretical ratio is 1.68; the ADC reads low (~40k source impedance starves its
+// sample-and-hold), so it is fitted to a multimeter instead. To re-fit: scale by
+// meter/reported, on battery only — with USB in the node is the charger rail.
+// ponytail: gain-only fit, exact at ~4.0V. If it reads high near 3.5V, take a point
+// down there and go two-point (gain + offset).
 #define DISPLAY_BATT_ADC 5
 #define DISPLAY_BATT_READ_INTERVAL_MS 5000
-BatteryManager displayBattery(DISPLAY_BATT_ADC, 0xFF, 4.224f / 2.47f);
+BatteryManager displayBattery(DISPLAY_BATT_ADC, 0xFF, 1.7269f);
 static uint32_t lastDisplayBattReadMs = 0;
 
 // Smoothing & Metrics
@@ -546,6 +550,9 @@ static void serviceChargeMode(uint32_t now) {
         if (!s_chargeBacklightOn) {
             bsp_display_backlight_on();
             s_chargeBacklightOn = true;
+            // On-screen value was sampled dark, so it reads ~30mV high until the
+            // panel loads the cell. Resample now instead of letting it visibly drop.
+            s_chargeBattReadMs = 0;
         }
         s_chargeBacklightOnMs = now;
     }
