@@ -12,6 +12,16 @@ struct FinishLine {
     double rightLng;
 };
 
+/* One sample of a lap's path: where you were, and how far into the lap you
+ * were when you were there. Scaled ints rather than doubles because two laps'
+ * worth of these live for the whole session. 1e-7 degrees is about 1.1 cm,
+ * two orders of magnitude below the fix noise this is matched against. */
+struct LapTracePoint {
+    int32_t  lat;    /* degrees * 1e7 */
+    int32_t  lng;
+    uint32_t tMs;    /* ms since this lap's interpolated start-line crossing */
+};
+
 /* Gate / sector indices. A sector is closed by the gate of the same index and
  * opened by the previous one, so:
  *
@@ -54,11 +64,81 @@ public:
      * exists, i.e. until there is something to compare with. */
     uint64_t getPreviousBestLapTime() const { return previousBestLapTimeMs; }
 
+    /* ---- live delta ----------------------------------------------------
+     * The lap in progress is recorded as position plus elapsed time, and the
+     * best lap so far is kept as a reference trace. Each fix is matched to the
+     * nearest point on that reference and the two elapsed times subtracted, so
+     * the delta answers "against my best lap, where I am now" rather than only
+     * "how did that lap end". */
+
+    static const int64_t LAP_NO_DELTA = INT64_MIN;
+
+    /* Somewhere to keep the reference lap and the lap in progress: two buffers
+     * of `capacity` points each. Nothing is recorded and getLiveDeltaMs() stays
+     * LAP_NO_DELTA until this is called.
+     *
+     * The storage is the caller's on purpose. tools/lapreplay compiles this
+     * class for the host against shim/Arduino.h, which has no PSRAM and no
+     * business pulling in an allocator, and the firmware wants these in PSRAM
+     * rather than the scarce internal heap. Both get what they need if neither
+     * is decided here. */
+    void setTraceBuffers(LapTracePoint *a, LapTracePoint *b, uint16_t capacity);
+
+    /* Signed ms against the reference lap at the point on track you are at now:
+     * negative is up on your best. LAP_NO_DELTA before a reference lap exists.
+     * Holds its last value rather than lying when the match drifts too far from
+     * the reference path to mean anything: off track, or in the pits. */
+    int64_t getLiveDeltaMs() const { return _liveDeltaMs; }
+
+    bool hasReferenceLap() const { return _refCount >= 2; }
+
+    /* The reference lap's own time. Zero until one exists. */
+    uint32_t getReferenceLapMs() const;
+
+    /* Where this lap is heading: the reference lap plus the delta you are
+     * carrying. Zero when there is nothing to project from. This is the number
+     * a driver actually chases, and it is nothing more than the two figures
+     * above added together. */
+    uint32_t getPredictedLapMs() const;
+
+    /* ---- virtual splits ------------------------------------------------
+     * The reference trace is divided into equal slices of reference time, and
+     * getSplitDeltaMs() reports the delta accumulated since the current slice
+     * began. That is what a delta BAR has to show: a cumulative lap delta pegs
+     * the moment you have a real off and then sits at the end of its scale for
+     * the rest of the lap, saying nothing about the corners that follow.
+     *
+     * Virtual rather than driven by the gates on purpose. The trace already
+     * knows where you are on the reference, so this needs no track
+     * configuration at all and still works on a track with no split gates set,
+     * which is the common case. It also gives more slices than three. */
+    static const int LAP_VIRTUAL_SPLITS = 8;
+
+    /* Signed ms since the current virtual split opened. LAP_NO_DELTA before a
+     * reference exists. */
+    int64_t getSplitDeltaMs() const { return _splitDeltaMs; }
+
+    /* 0..LAP_VIRTUAL_SPLITS-1 while running, -1 before the first match. */
+    int getVirtualSplit() const { return _curVirtualSplit; }
+
+    /* Points in the reference trace, for harness reporting. */
+    uint16_t getReferenceCount() const { return _refCount; }
+
+    /* True when the lap that just completed became the session best: the
+     * signal the dash paints purple. Only meaningful right after
+     * processTelemetry() has returned true. */
+    bool wasBestLap() const { return _lastLapWasBest; }
+
     /* ---- sectors ------------------------------------------------------- */
     bool hasSectors() const { return _gateSet[LAP_GATE_S1] && _gateSet[LAP_GATE_S2]; }
 
     /* 0..2 while running, -1 before the first finish-line crossing. */
     int  getCurrentSector() const { return _currentSector; }
+
+    /* True once the finish line has been crossed and a lap is actually being
+     * timed. False on the out lap, where the kart may well drive through the
+     * split gates on its way round but is not on a lap. */
+    bool isLapUnderWay() const { return currentLapStartTime != 0; }
 
     /* This lap's split for sector s. 0 until it closes. */
     uint64_t getSectorTime(int s) const;
@@ -78,6 +158,12 @@ public:
 
     /* Elapsed time in the sector currently being driven, for a live readout. */
     uint64_t getRunningSplitMs(uint64_t nowEpochMs) const;
+
+    /* Elapsed time in the lap currently being driven, for a live clock. Zero
+     * before the first finish-line crossing, when no lap has started. Measured
+     * from the same interpolated crossing time the lap times use, so a running
+     * clock lands exactly on the lap time when the line comes round again. */
+    uint64_t getRunningLapMs(uint64_t nowEpochMs) const;
 
 private:
     FinishLine _gate;
@@ -104,6 +190,28 @@ private:
 
     void resetSectorsForNewLap();
     void closeSectorAt(int gate, uint64_t crossMs);
+
+    /* ---- live delta, see the public block above ------------------------- */
+    LapTracePoint *_ref = nullptr;      /* best lap so far  */
+    LapTracePoint *_cur = nullptr;      /* lap in progress  */
+    uint16_t _traceCap   = 0;
+    uint16_t _refCount   = 0;
+    uint16_t _curCount   = 0;
+    uint32_t _curLastMs  = 0;           /* elapsed at the last recorded point */
+    bool     _curOverflow = false;      /* ran out of buffer: do not promote  */
+    int      _matchIdx   = 0;           /* where the last fix matched         */
+    int64_t  _liveDeltaMs = LAP_NO_DELTA;
+    bool     _lastLapWasBest = false;
+
+    int      _curVirtualSplit  = -1;
+    int64_t  _splitEntryDeltaMs = 0;    /* delta as the current slice opened  */
+    int64_t  _splitDeltaMs      = LAP_NO_DELTA;
+
+    bool processCrossings(const TelemetryMsg& data);
+    void updateTrace(const TelemetryMsg& data);
+    void closeTraceAtLine(uint64_t crossMs, double lat, double lng, bool isBest);
+    void resetTrace();
+    int64_t matchDelta(double lat, double lng, uint32_t elapsedMs);
 
     // Tracking the previous point to draw a line segment
     bool _hasLastPoint = false;

@@ -50,7 +50,17 @@ public:
     void setLap(uint8_t lap_num,
                 const char *lap_str,                   /* e.g. "1:23.74" */
                 const char *best_str);                 /* e.g. "1:23.32" */
-    void setDelta(float seconds, bool faster);         /* faster = green pill */
+    /* Live lap delta on the hero panel. Called every frame from the telemetry
+     * pass; `valid` false blanks it, which is what to show before a reference
+     * lap exists. Self-filtering the way setSectors is, because ui_dash2_set_delta
+     * repaints the panel and four labels, and this arrives at telemetry rate.
+     * Ignored while a best-lap flash is holding. */
+    void setLiveDelta(float seconds, bool valid);
+
+    /* Latch the purple session-best state at the line for a few seconds, then
+     * hand back to the live delta. `valid` false when the lap is the first
+     * timed one and there is nothing to have beaten. */
+    void flashBestLap(float seconds, bool valid);
     void setDisplay(uint8_t pct);                      /* battery level */
 
     /* --- Charge mode --- */
@@ -64,14 +74,37 @@ public:
                  const char *ip);
     void setWifiError(void);                           /* portal failed to start */
 
-    /* Sector band. `current` is the sector being driven (-1 none); `runningMs`
-     * is its elapsed time. For each closed sector pass its delta vs its own
-     * previous best in ms, or LAP_SECTOR_NO_DELTA when there is nothing to
-     * compare with. Self-filtering: unchanged state costs nothing. */
-    void setSectors(int current, uint32_t runningMs,
-                    const int64_t *deltaMs, const bool *valid);
+    /* Lap clock, bottom-left. */
+    void setLapClock(uint32_t runningMs);
+
+    /* The delta bar. Split-relative, not the cumulative lap delta — see
+     * LapManager's virtual-splits block for why. Gated finer than the number
+     * beside it: this is the part read without looking, so it should move
+     * smoothly, and it costs one resize rather than a panel repaint. */
+    void setDeltaBar(float splitSeconds, bool valid);
+
+    /* Predicted lap time: the reference lap plus the delta being carried. */
+    void setPredicted(uint32_t ms, bool valid);
+
+    /* Sector cells. `current` is the sector being driven (-1 none), `runningMs`
+     * its elapsed time, shown in that cell. For each closed sector pass its
+     * delta vs its own previous best in `deltaMs` (or LAP_SECTOR_NO_DELTA when
+     * there is nothing to compare with) AND its split in `timeMs`.
+     *
+     * Both are needed: a sector that closes without a comparison — every sector
+     * of the first timed lap — still has a time worth showing, and showing the
+     * time is what stops the cell blanking itself the moment it closes.
+     * Self-filtering: unchanged state costs nothing. */
+    void setSectors(int current, uint32_t runningMs, const int64_t *deltaMs,
+                    const uint32_t *timeMs, const bool *valid);
     void setTheme(dash_mode_t mode);                   /* day / night swap */
     void setSessionState(bool active);                 /* updates button label + recording panel */
+
+    /* DEMO mode. Takes over the status bar's REC cell, showing DEMO in the
+     * accent colour so a screen full of synthetic laps can never be mistaken
+     * for a recorded session. Mutually exclusive with setSessionState(true);
+     * main_display refuses to start one while the other is running. */
+    void setDemoState(bool on);
     void tickRecordingPanel();                         /* call every frame to drive the blink */
     void setTracks(const char *const *names, int count);
     void setTrackIdx(int idx);
@@ -89,6 +122,9 @@ public:
     void setAlert(uint16_t errors, uint16_t warnings);
 
 private:
+    static void paint_delta(float seconds, bool valid,
+                            dash2_delta_state_t st, uint32_t now, bool force);
+
     static void build_alert_banner(void);
     static uint32_t batt_color(uint8_t pct);
     static uint32_t gps_color(uint8_t n);
@@ -102,6 +138,10 @@ private:
                                        lv_obj_t **out_label);
     static void build_charge_screen(void);             /* hand-built; not a SquareLine export */
     static void build_charge_mode_button(void);        /* injected into the config screen at runtime */
+    static void build_demo_button(void);               /* ditto, directly below it */
+    /* 0 off, 1 REC, 2 DEMO. One cell, one animation, one place that decides
+     * what it says. */
+    static void set_rec_cell(int mode);
     static void build_version_label(void);             /* ditto — FW_VERSION in the setup header */
     static void refresh_track_name(void);
     static void refresh_coord_row(setup_line_side_t side);
@@ -136,7 +176,7 @@ private:
     static lv_obj_t *s_rec_panel;
     static lv_obj_t *s_rec_dot;
     static lv_obj_t *s_rec_lbl;
-    static bool      s_rec_active;
+    static int       s_rec_mode;
     static lv_obj_t *s_wifi_panel;
     static lv_obj_t *s_wifi_var;
     static lv_obj_t *s_wifi_btn_lbl;

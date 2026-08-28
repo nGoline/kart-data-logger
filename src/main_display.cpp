@@ -16,6 +16,7 @@ extern "C" {
 #include "BatteryManager.h"
 #include "ConfigManager.h"
 #include "LapManager.h"
+#include "DemoTrack.h"
 #include "GpsManager.h"
 
 #if defined(ENABLE_GOPRO)
@@ -139,6 +140,59 @@ static uint32_t lastHealthReportMs = 0;
 // Lap state — updated inside syncUI()
 static uint8_t s_lapCount = 0;
 
+/* Reference-trace storage for the live lap delta. LapManager allocates nothing
+ * itself (tools/lapreplay compiles it for the host, where there is no PSRAM)
+ * so the two buffers are handed to it from here. At the trace's 5 Hz these
+ * cover a 3.4 minute lap each, which no kart lap approaches, and they sit in
+ * PSRAM next to the log ring rather than in the scarce internal heap. */
+#define LAP_TRACE_POINTS 1024
+static LapTracePoint *s_traceRef = nullptr;
+static LapTracePoint *s_traceCur = nullptr;
+
+static void initLapTrace() {
+    size_t bytes = sizeof(LapTracePoint) * LAP_TRACE_POINTS;
+    s_traceRef = (LapTracePoint *)ps_malloc(bytes);
+    s_traceCur = (LapTracePoint *)ps_malloc(bytes);
+    if (!s_traceRef || !s_traceCur) {
+        /* No fallback to the internal heap: 24 KB there is worth more than a
+         * live delta, and LapManager without buffers simply reports no delta
+         * and times laps exactly as it did before. */
+        free(s_traceRef); free(s_traceCur);
+        s_traceRef = s_traceCur = nullptr;
+        log_w("Lap trace: %u bytes of PSRAM unavailable, live delta disabled",
+              (unsigned)(bytes * 2));
+        return;
+    }
+    lapManager.setTraceBuffers(s_traceRef, s_traceCur, LAP_TRACE_POINTS);
+}
+
+/* ============================================================================
+ * DEMO MODE
+ * Drives the real dashboard from synthetic telemetry, so the whole live path
+ * (lap detection, sectors, the reference trace, the delta, the lap clock) runs
+ * exactly as it does on track. Nothing is written to the card: the log enqueue
+ * and the session state are untouched, so a demo leaves no session behind.
+ *
+ * It installs its own gates because the selected track may be nowhere near, or
+ * may have no split gates at all, and a demo with an empty sector rail
+ * demonstrates nothing. The real track's gates are put back on the way out.
+ * ========================================================================= */
+static DemoTrack s_demo;
+static bool s_demoMode = false;
+
+// Set from LVGL callbacks, consumed in loop() — same rule as charge mode.
+static volatile bool s_demoEnterPending = false;
+static volatile bool s_demoExitPending  = false;
+
+extern "C" void ui_helper_enter_demo_mode(void) { s_demoEnterPending = true; }
+extern "C" void ui_helper_exit_demo_mode(void)  { s_demoExitPending  = true; }
+
+/* Lap timing runs for a real session or a demo. The log enqueue deliberately
+ * does not consult this — it stays gated on the session alone. */
+static inline bool timingActive() {
+    return logManager.isSessionActive() || s_demoMode;
+}
+
 // Push a track's split gates into LapManager. Must follow setFinishLine(),
 // which clears them — the splits belong to a track, so a new finish line
 // invalidates them.
@@ -148,6 +202,61 @@ static void applySectorGates(const TrackConfig *t) {
     FinishLine s2 = { t->s2.left_lat, t->s2.left_lon, t->s2.right_lat, t->s2.right_lon };
     lapManager.setSectorGates(t->s1.usable() ? &s1 : nullptr,
                               t->s2.usable() ? &s2 : nullptr);
+}
+
+static void enterDemoMode() {
+    if (s_demoMode) return;
+    if (logManager.isSessionActive()) {
+        /* Refused rather than silently stopping the session: someone with a
+         * session running is recording, and a demo is not worth ending it. */
+        log_w("DEMO: a session is recording — stop it first");
+        return;
+    }
+
+    s_demo.begin(1785000000000ULL);   /* synthetic epoch; only deltas matter */
+
+    FinishLine g[DemoTrack::GATE_COUNT];
+    for (int i = 0; i < DemoTrack::GATE_COUNT; i++)
+        s_demo.gate(i, g[i].leftLat, g[i].leftLng, g[i].rightLat, g[i].rightLng);
+    lapManager.setFinishLine(g[DemoTrack::GATE_END]);
+    lapManager.setSectorGates(&g[DemoTrack::GATE_S1], &g[DemoTrack::GATE_S2]);
+
+    s_lapCount = 0;
+    s_demoMode = true;
+
+    /* Under the display lock: this runs in loop(), not in LVGL context. */
+    bsp_display_lock(0);
+    uiHelper.setLap(0, "", "");
+    uiHelper.setDemoState(true);
+    bsp_display_unlock();
+
+    log_i("DEMO: started on the synthetic oval");
+}
+
+static void exitDemoMode() {
+    if (!s_demoMode) return;
+    s_demoMode = false;
+    s_lapCount = 0;
+
+    /* Put the real track back. setFinishLine() also clears the reference trace,
+     * so the demo's laps cannot become the delta reference for a real session. */
+    const TrackConfig *active = configManager.getTrack((int)configManager.getSelectedTrack());
+    if (active && active->left_valid && active->right_valid) {
+        FinishLine fl = { active->left_lat, active->left_lon,
+                          active->right_lat, active->right_lon };
+        lapManager.setFinishLine(fl);
+        applySectorGates(active);
+    }
+
+    bsp_display_lock(0);
+    uiHelper.setDemoState(false);
+    uiHelper.setLap(0, "", "");
+    uiHelper.setLiveDelta(0, false);
+    uiHelper.setDeltaBar(0, false);
+    uiHelper.setLapClock(0);
+    bsp_display_unlock();
+
+    log_i("DEMO: stopped, real track restored");
 }
 
 // ============================================================================
@@ -278,6 +387,13 @@ extern "C" void ui_helper_toggle_session() {
 extern "C" void ui_helper_stop_session() {
     logManager.stopSession();
     uiHelper.setSessionState(false);
+
+    /* Put the dashboard back to cold. The per-frame readouts (delta, bar, clock,
+     * sector cells) follow timingActive() and blank themselves, but the header's
+     * LAP n / lap time / BEST are only written on a crossing, so without this
+     * they keep advertising the run that just ended. */
+    s_lapCount = 0;
+    uiHelper.setLap(0, "", "");
 #if defined(ENABLE_GOPRO)
     goPro.setRecording(false);
 #endif
@@ -308,42 +424,64 @@ void syncUI() {
         }
 
         // 9. Lap Detection — only while a session is active
-        if (logManager.isSessionActive() && lapManager.processTelemetry(telemetry)) {
+        if (timingActive() && lapManager.processTelemetry(telemetry)) {
             s_lapCount++;
             uint64_t lt = lapManager.getLastLapTime();
             uint64_t bt = lapManager.getBestLapTime();
-            bool isBest = (lt == bt && bt != 0 && bt != 0xFFFFFFFFFFFFFFFFULL);
+            // LapManager's own verdict rather than a second definition here:
+            // it is the same flag that decides whether this lap's trace
+            // becomes the delta reference, so purple and "the lap you are now
+            // being measured against" cannot disagree.
+            bool isBest = lapManager.wasBestLap();
 
+            // Always m:ss.mmm, never the shorter form under a minute. Dropping
+            // the "0:" made the header reflow the moment a lap dipped below
+            // sixty seconds, which is the same jitter the tabular digits were
+            // meant to remove.
             char lapStr[20], bestStr[20];
-            int ltMin = (int)(lt / 60000), ltSec = (int)((lt % 60000) / 1000), ltMs = (int)(lt % 1000);
-            if (ltMin > 0)
-                snprintf(lapStr, sizeof(lapStr), "%d:%02d.%03d", ltMin, ltSec, ltMs);
+            snprintf(lapStr, sizeof(lapStr), "%u:%02u.%03u",
+                     (unsigned)(lt / 60000), (unsigned)((lt % 60000) / 1000),
+                     (unsigned)(lt % 1000));
+            if (bt != 0xFFFFFFFFFFFFFFFFULL)
+                snprintf(bestStr, sizeof(bestStr), "%u:%02u.%03u",
+                         (unsigned)(bt / 60000), (unsigned)((bt % 60000) / 1000),
+                         (unsigned)(bt % 1000));
             else
-                snprintf(lapStr, sizeof(lapStr), "%d.%03d", ltSec, ltMs);
-
-            if (bt != 0xFFFFFFFFFFFFFFFFULL) {
-                int btMin = (int)(bt / 60000), btSec = (int)((bt % 60000) / 1000), btMs = (int)(bt % 1000);
-                if (btMin > 0)
-                    snprintf(bestStr, sizeof(bestStr), "%d:%02d.%03d", btMin, btSec, btMs);
-                else
-                    snprintf(bestStr, sizeof(bestStr), "%d.%03d", btSec, btMs);
-            } else {
                 bestStr[0] = '\0';
+
+            // The number and the time have to describe the SAME lap. s_lapCount
+            // counts crossings, so after the Nth crossing you are driving lap N
+            // while the time just measured belongs to lap N-1 — and "LAP 4"
+            // beside lap 3's time reads as though the lap you are on somehow
+            // already has a time. The header is a report on the lap that just
+            // finished, so it is labelled with that lap's number.
+            //
+            // Nothing to report on the first crossing: it only starts the clock.
+            uint8_t lapJustDone = (s_lapCount > 0) ? (uint8_t)(s_lapCount - 1) : 0;
+            if (lt) uiHelper.setLap(lapJustDone, lapStr, bestStr);
+
+            // Purple at the line, on the lap that just became the session's
+            // fastest, held for a few seconds before the new lap's live delta
+            // takes the panel back. Green and red need nothing here any more:
+            // they come from the live delta, which is already showing this
+            // same number as the kart reaches the line.
+            //
+            // The number is measured against the best lap as it stood before
+            // this one, which is the time you were chasing. (Against the
+            // *current* best it would read 0.00 on every personal best.)
+            if (isBest) {
+                uint64_t pb = lapManager.getPreviousBestLapTime();
+                bool comparable = (pb != 0 && pb != 0xFFFFFFFFFFFFFFFFULL);
+                uiHelper.flashBestLap(
+                    comparable ? (float)((int64_t)lt - (int64_t)pb) / 1000.0f : 0.0f,
+                    comparable);
             }
 
-            uiHelper.setLap(s_lapCount, lapStr, bestStr);
-
-            // Delta is measured against the best lap as it stood before this
-            // one — that is the time you were chasing. (Against the *current*
-            // best it would read 0.00 on every personal best; against the
-            // previous lap it just says whether you improved on one sample.)
-            uint64_t pb = lapManager.getPreviousBestLapTime();
-            if (pb != 0 && pb != 0xFFFFFFFFFFFFFFFFULL) {
-                int64_t deltaMs = (int64_t)lt - (int64_t)pb;
-                uiHelper.setDelta(fabsf((float)deltaMs / 1000.0f), deltaMs <= 0);
-            }
-
-            log_i("Lap %d completed: %s%s (best: %s)", s_lapCount, lapStr, isBest ? " [BEST]" : "", bestStr);
+            if (lt)
+                log_i("Lap %u completed: %s%s (best: %s)", (unsigned)lapJustDone,
+                      lapStr, isBest ? " [BEST]" : "", bestStr);
+            else
+                log_i("Finish line crossed — lap timing starts here");
         }
     }
 
@@ -351,15 +489,59 @@ void syncUI() {
     // events, so the display cannot drift out of step with the timer — the
     // helper diffs and only repaints what changed.
     {
-        int64_t sd[3];
-        bool    sv[3];
+        bool timing = timingActive();
+        int64_t  sd[3];
+        uint32_t stime[3];
+        bool     sv[3];
         for (int i = 0; i < 3; i++) {
-            sd[i] = lapManager.getSectorDelta(i);
-            sv[i] = lapManager.isSectorValid(i);
+            sd[i]    = timing ? lapManager.getSectorDelta(i) : LapManager::LAP_SECTOR_NO_DELTA;
+            stime[i] = timing ? (uint32_t)lapManager.getSectorTime(i) : 0;
+            sv[i]    = timing && lapManager.isSectorValid(i);
         }
-        uiHelper.setSectors(lapManager.hasSectors() ? lapManager.getCurrentSector() : -1,
+        /* -1 unless a lap is genuinely under way. On the out lap the kart drives
+         * through the split gates, so getCurrentSector() reports 1 then 2 and the
+         * cells would show running splits for a lap that has not started. */
+        int cur = (timing && lapManager.hasSectors() && lapManager.isLapUnderWay())
+                    ? lapManager.getCurrentSector() : -1;
+        uiHelper.setSectors(cur,
                             (uint32_t)lapManager.getRunningSplitMs(telemetry.timestamp),
-                            sd, sv);
+                            sd, stime, sv);
+    }
+
+    // Live lap delta. Read every frame rather than pushed on crossings, for the
+    // same reason as the band above: the display cannot then drift out of step
+    // with LapManager, and the helper diffs and rate-limits so the hero panel
+    // is not repainted at telemetry rate.
+    {
+        /* Gated on the timing state, not just on LapManager's own. When a session
+         * stops, processTelemetry() is no longer called, so the delta keeps its
+         * last value for ever and the panel sits there showing the gap from a run
+         * that finished — which is exactly how a stopped session used to leave a
+         * live-looking dashboard behind. */
+        bool    timing = timingActive();
+        int64_t d = timing ? lapManager.getLiveDeltaMs() : LapManager::LAP_NO_DELTA;
+        bool    ok = (d != LapManager::LAP_NO_DELTA);
+        uiHelper.setLiveDelta(ok ? (float)d / 1000.0f : 0.0f, ok);
+
+        // Where the lap is heading, and the bar. The bar takes the SPLIT delta,
+        // not this one: a cumulative bar pegs the moment you have a real off and
+        // then sits at the end of its scale for the rest of the lap.
+        uiHelper.setPredicted(lapManager.getPredictedLapMs(), ok);
+
+        int64_t sd = timing ? lapManager.getSplitDeltaMs() : LapManager::LAP_NO_DELTA;
+        bool    sok = (sd != LapManager::LAP_NO_DELTA);
+        uiHelper.setDeltaBar(sok ? (float)sd / 1000.0f : 0.0f, sok);
+    }
+
+    // Lap clock, off the same GPS timestamps the lap times come from, so the
+    // running value lands exactly on the lap time as the line comes round.
+    // Zeroed with no session: currentLapStartTime outlives a stopped one, and
+    // counting on from it would put a runaway clock on the dash.
+    {
+        uint32_t lapMs = timingActive()
+                           ? (uint32_t)lapManager.getRunningLapMs(telemetry.timestamp)
+                           : 0;
+        uiHelper.setLapClock(lapMs);
     }
 
     // Drive the recording panel blink
@@ -397,6 +579,11 @@ void setup() {
     // Report whether this boot is a normal start or an auto-recovery from a
     // display wedge (Option 4 safety net).
     reportRecoveryOnBoot();
+
+    // Before anything can apply a finish line: setFinishLine() clears the
+    // traces, and handing the buffers over afterwards would be harmless but
+    // this keeps the ordering obvious.
+    initLapTrace();
 
     // 1. Initialize IMU FIRST
 #if defined(ENABLE_IMU)
@@ -597,6 +784,8 @@ void loop() {
         s_chargeExitPending = false;
         if (s_chargeMode) exitChargeMode();
     }
+    if (s_demoEnterPending) { s_demoEnterPending = false; enterDemoMode(); }
+    if (s_demoExitPending)  { s_demoExitPending  = false; exitDemoMode();  }
 
     // Ahead of everything below on purpose: charge mode is a parking state, so
     // it must not fall through to session analysis (a multi-second SD stream)
@@ -633,7 +822,14 @@ void loop() {
      * measured session lost 24% of its rows without the health counter noticing,
      * the frames being discarded upstream of the queue. The UI still consumes
      * only the newest via newTelemetryAvailable; only the log needs all of them. */
-    while (gps.update()) {
+    /* Demo mode substitutes for the receiver entirely. Same while-loop shape as
+     * the real drain below, so a slow pass catches up rather than dropping
+     * frames, and everything downstream is none the wiser. */
+    while (s_demoMode && s_demo.update(now, telemetry)) {
+        newTelemetryAvailable = true;
+    }
+
+    while (!s_demoMode && gps.update()) {
         /* IMU removed — no accelerometer on this build. The g-force and gyro
          * fields stay in the message (and the CSV) as zeros so old sessions and
          * SessionBrowser keep parsing; a future 9-DoF refills them. */
@@ -699,10 +895,18 @@ void loop() {
         lastGpsLogMs  = now;
         lastGpsFrames = frames;
 
-        GpsFixInfo fi = gps.getFixInfo();
-        log_i("GPS: sats=%lu fix=%u ok=%d pdop=%.1f hAcc=%.1fm rate=%.1fHz",
-              (unsigned long)gps.getSatellites(), (unsigned)fi.fixType,
-              fi.gnssFixOK ? 1 : 0, fi.pdop, fi.hAccM, hz);
+        /* Demo mode substitutes for the receiver, so gps.update() is never called
+         * and the frame counter never moves. Say so rather than reporting 0.0Hz,
+         * which reads as a dead receiver in exactly the log someone goes to when
+         * a session came back empty. */
+        if (s_demoMode) {
+            log_i("GPS: DEMO MODE — synthetic telemetry, receiver not being read");
+        } else {
+            GpsFixInfo fi = gps.getFixInfo();
+            log_i("GPS: sats=%lu fix=%u ok=%d pdop=%.1f hAcc=%.1fm rate=%.1fHz",
+                  (unsigned long)gps.getSatellites(), (unsigned)fi.fixType,
+                  fi.gnssFixOK ? 1 : 0, fi.pdop, fi.hAccM, hz);
+        }
     }
 
     // Once-a-second health reporting
@@ -736,31 +940,7 @@ void loop() {
         }
 
         // Log rows the queue had no room for. Also persisted to /health.csv by the
-    /* GPS heartbeat. "GPS 0" on the dash says a fix is missing but not why, and
-     * the difference matters: satellites climbing with fixType stuck at 0 is a
-     * sky-view/cold-start problem and will come good if left alone; zero
-     * satellites for minutes is an antenna, wiring or config problem and never
-     * will. Logged unconditionally so a session that never got a fix leaves an
-     * account of itself on the card. */
-    static uint32_t lastGpsLogMs   = 0;
-    static uint32_t lastGpsFrames  = 0;
-    if (now - lastGpsLogMs >= 5000) {
-        /* Measured NAV-PVT rate, not the rate we asked for. CFG-RATE is accepted
-         * without complaint even when the receiver cannot sustain it, so the only
-         * way to know we are really getting 25Hz is to count frames and divide. */
-        uint32_t frames  = gps.getFrameCount();
-        uint32_t elapsed = now - lastGpsLogMs;
-        float    hz      = lastGpsLogMs && elapsed
-                             ? (frames - lastGpsFrames) * 1000.0f / (float)elapsed
-                             : 0.0f;
-        lastGpsLogMs  = now;
-        lastGpsFrames = frames;
 
-        GpsFixInfo fi = gps.getFixInfo();
-        log_i("GPS: sats=%lu fix=%u ok=%d pdop=%.1f hAcc=%.1fm rate=%.1fHz",
-              (unsigned long)gps.getSatellites(), (unsigned)fi.fixType,
-              fi.gnssFixOK ? 1 : 0, fi.pdop, fi.hAccM, hz);
-    }
 
         // log task, since serial is no use with the dash bolted to a steering wheel.
         static uint32_t lastLogQueueDrops = 0;

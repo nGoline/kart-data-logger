@@ -22,7 +22,7 @@ uint8_t       UiHelper::s_cam_batt    = 255;
 lv_obj_t     *UiHelper::s_rec_panel    = nullptr;
 lv_obj_t     *UiHelper::s_rec_dot      = nullptr;
 lv_obj_t     *UiHelper::s_rec_lbl      = nullptr;
-bool          UiHelper::s_rec_active   = false;
+int           UiHelper::s_rec_mode     = 0;
 lv_obj_t     *UiHelper::s_wifi_panel   = nullptr;
 lv_obj_t     *UiHelper::s_wifi_var     = nullptr;
 lv_obj_t     *UiHelper::s_wifi_btn_lbl = nullptr;
@@ -37,10 +37,19 @@ lv_obj_t *UiHelper::s_charge_volts  = nullptr;
 /* helper */
 static inline lv_color_t C(uint32_t hex) { return lv_color_hex(hex); }
 
+/* Implemented in src/main_display.cpp. Declared up here rather than with the
+ * charge-mode bridges below because dash_speed_cb() calls one of them. */
+extern "C" void ui_helper_enter_demo_mode(void);
+extern "C" void ui_helper_exit_demo_mode(void);
+
 /* Tap the speed readout to reach setup — the affordance the SquareLine
  * dashboard had, restored on the v2 screen. */
 static void dash_speed_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    /* This is the way off the dashboard, so it is also the way out of demo
+     * mode: leaving synthetic telemetry running behind the setup screen would
+     * put fake laps on the dash the next time you came back to it. */
+    ui_helper_exit_demo_mode();
     _ui_screen_change(&ui_configscreen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 500, 0,
                       &ui_configscreen_screen_init);
 }
@@ -118,7 +127,7 @@ void UiHelper::init() {
     setSpeed(0);
     setGx(0);
     setGy(0);
-    setDelta(0, true);
+    setLiveDelta(0, false);   /* no reference lap yet: blank, not "0.00" */
     setLap(0, "", "");
 
     // Track setup initialization
@@ -138,6 +147,7 @@ void UiHelper::init() {
     // SquareLine, so re-exporting lib/ui/ does not wipe them.
     build_charge_screen();
     build_charge_mode_button();
+    build_demo_button();
     build_version_label();
     build_alert_banner();
 
@@ -226,6 +236,50 @@ void UiHelper::build_charge_mode_button(void) {
 
     lv_obj_add_event_cb(btn, [](lv_event_t *e) {
         if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_helper_enter_charge_mode();
+    }, LV_EVENT_CLICKED, NULL);
+}
+
+/* DEMO button, appended directly below CHARGE MODE. Same hand-built styling as
+ * its neighbour rather than make_setup_button()'s, so the two read as a pair.
+ * The callback only sets a flag: entering demo mode repoints LapManager at a
+ * different set of gates, which is not work to do from an LVGL callback. */
+void UiHelper::build_demo_button(void) {
+    if (!ui_panelsetupbuttons) return;
+
+    lv_obj_t *btn = lv_button_create(ui_panelsetupbuttons);
+    lv_obj_set_width(btn, 250);
+    lv_obj_set_height(btn, 50);
+    lv_obj_set_align(btn, LV_ALIGN_TOP_MID);
+    lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_ext_click_area(btn, 5);
+    lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(btn, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(btn, C(0x1A1D23), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(btn, C(0x6B7280), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(btn, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_flex_grow(btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *lbl = lv_label_create(btn);
+    lv_obj_set_width(lbl, LV_SIZE_CONTENT);
+    lv_obj_set_height(lbl, LV_SIZE_CONTENT);
+    lv_obj_set_align(lbl, LV_ALIGN_LEFT_MID);
+    lv_label_set_text(lbl, "DEMO");
+    lv_obj_set_style_text_color(lbl, C(0xF6F8FB), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(lbl, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl, &ui_font_BarlowCondensedBold32, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+        if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+        ui_helper_enter_demo_mode();
+        /* Straight to the dashboard: the point of the mode is to watch it run,
+         * and the screen change is safe here because a button callback is
+         * already in LVGL context. The mode itself comes up on the next loop()
+         * pass, by which time this transition has been handed to LVGL. */
+        _ui_screen_change(&ui_dashboardscreen, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 500, 0,
+                          &ui_dashboardscreen_screen_init);
     }, LV_EVENT_CLICKED, NULL);
 }
 
@@ -346,9 +400,132 @@ void UiHelper::setLap(uint8_t lap_num, const char *lap_str, const char *best_str
     ui_dash2_set_lap((int)lap_num, lap_str, best_str);
 }
 
-/* v2 takes a signed delta; ours has always been magnitude + direction. */
-void UiHelper::setDelta(float seconds, bool faster) {
-    ui_dash2_set_delta(faster ? -fabsf(seconds) : fabsf(seconds));
+/* ============================================================================
+ * LAP DELTA HERO PANEL
+ * The delta now arrives per fix rather than once at the line, so this is the
+ * gate that keeps a 25 Hz number off a widget that repaints itself and four
+ * labels every time it is touched. Same shape as setSectors below.
+ * ============================================================================ */
+
+/* ~5 Hz. Two decimals cannot be read faster than that, and a full-frame blit
+ * per telemetry sample would cost the dashboard its frame rate. */
+#define DELTA_MIN_REPAINT_MS 200
+
+/* Colour hysteresis, in seconds. A live delta sits near zero for much of a lap
+ * and a metre of hAcc alone is worth six hundredths at 60 km/h, so a bare
+ * `< 0` test strobes the panel between green and red on noise. The number
+ * still shows the true value; only the colour is damped. */
+#define DELTA_DEADBAND_S 0.05f
+
+/* How long purple holds at the line before the new lap's live delta takes
+ * over. Long enough to read coming past the pits, short enough that the first
+ * corner is already being coached. */
+#define DELTA_BEST_HOLD_MS 4000
+
+static uint32_t s_delta_flash_until = 0;    /* 0 = not flashing */
+static int32_t  s_delta_shown_cs    = INT32_MIN;
+static int      s_delta_shown_state = -1;
+static uint32_t s_delta_painted_ms  = 0;
+static bool     s_delta_painted     = false;
+static bool     s_delta_faster      = true; /* the deadband's remembered side */
+
+void UiHelper::paint_delta(float seconds, bool valid, dash2_delta_state_t st,
+                           uint32_t now, bool force) {
+    /* Diff on what is actually drawn (the hundredth and the colour), not on
+     * the float, which changes on every fix and would defeat the whole point. */
+    int32_t cs = valid ? (int32_t)lroundf(seconds * 100.0f) : INT32_MIN;
+    if (!force && s_delta_painted) {
+        if (cs == s_delta_shown_cs && (int)st == s_delta_shown_state) return;
+        if ((uint32_t)(now - s_delta_painted_ms) < DELTA_MIN_REPAINT_MS) return;
+    }
+    s_delta_painted     = true;
+    s_delta_shown_cs    = cs;
+    s_delta_shown_state = (int)st;
+    s_delta_painted_ms  = now;
+    ui_dash2_set_delta(valid ? seconds : 0.0f, st, valid);
+}
+
+void UiHelper::setLiveDelta(float seconds, bool valid) {
+    uint32_t now = millis();
+
+    /* Purple owns the panel until it expires. Signed compare so the hold ends
+     * correctly across a millis() wrap. */
+    if (s_delta_flash_until) {
+        if ((int32_t)(now - s_delta_flash_until) < 0) return;
+        s_delta_flash_until = 0;
+    }
+
+    dash2_delta_state_t st = DASH2_DELTA_NONE;
+    if (valid) {
+        if      (seconds >  DELTA_DEADBAND_S) s_delta_faster = false;
+        else if (seconds < -DELTA_DEADBAND_S) s_delta_faster = true;
+        /* Inside the band the last side stands, and it starts green, so an
+         * exact zero reads as level rather than as behind. */
+        st = s_delta_faster ? DASH2_DELTA_FASTER : DASH2_DELTA_SLOWER;
+    }
+    paint_delta(seconds, valid, st, now, false);
+}
+
+void UiHelper::flashBestLap(float seconds, bool valid) {
+    uint32_t now = millis();
+    s_delta_flash_until = now + DELTA_BEST_HOLD_MS;
+    if (!s_delta_flash_until) s_delta_flash_until = 1;   /* 0 means "not flashing" */
+    s_delta_faster = true;      /* the new lap starts level with the lap it chases */
+    paint_delta(seconds, valid, DASH2_DELTA_BEST, now, true);
+}
+
+/* Fixed width, always m:ss.mmm. Dropping the "0:" under a minute (as the
+ * top-right LAP readout does) would reflow the string the instant the clock
+ * passed 60.000 and jump every digit sideways, which is fine for a lap time
+ * that lands once and stays put, and not fine for a clock you are watching. */
+static void fmt_lap_time(char *out, size_t n, uint32_t ms) {
+    snprintf(out, n, "%u:%02u.%03u", (unsigned)(ms / 60000),
+             (unsigned)((ms % 60000) / 1000), (unsigned)(ms % 1000));
+}
+
+void UiHelper::setLapClock(uint32_t runningMs) {
+    static uint32_t shown = 0xFFFFFFFF;
+    if (runningMs == shown) return;     /* no fix this frame, or not timing */
+    shown = runningMs;
+
+    /* No rate gate here, unlike the delta. This is one label on a PARTIAL
+     * render path, so it invalidates its own box and nothing else, and a lap
+     * clock that ticks at 5 Hz reads as broken. It moves at whatever rate the
+     * GPS clock behind it does. */
+    char buf[16];
+    fmt_lap_time(buf, sizeof buf, runningMs);
+    ui_dash2_set_lap_clock(buf);
+}
+
+/* Finer than the delta number's gate: about a pixel of bar travel at the
+ * panel's full scale. The bar is the element read peripherally, so it should
+ * slide rather than step, and unlike the number it costs one widget resize on a
+ * PARTIAL render path instead of a panel-and-labels repaint. */
+#define DELTA_BAR_STEP_S 0.005f
+
+void UiHelper::setDeltaBar(float splitSeconds, bool valid) {
+    static int32_t shown = INT32_MIN;
+    static bool    shownValid = false;
+    int32_t q = valid ? (int32_t)lroundf(splitSeconds / DELTA_BAR_STEP_S) : INT32_MIN;
+    if (q == shown && valid == shownValid) return;
+    shown = q; shownValid = valid;
+    ui_dash2_set_delta_bar(splitSeconds, valid);
+}
+
+void UiHelper::setPredicted(uint32_t ms, bool valid) {
+    static uint32_t shown = 0xFFFFFFFF;
+    static uint32_t paintedMs = 0;
+    if (!valid) return;                 /* the panel hides it via setLiveDelta */
+    uint32_t now = millis();
+    if (ms == shown) return;
+    /* Same 5 Hz as the delta number it sits beside: seven digits cannot be read
+     * faster, and the milliseconds are a blur either way. */
+    if ((uint32_t)(now - paintedMs) < DELTA_MIN_REPAINT_MS) return;
+    shown = ms; paintedMs = now;
+
+    char buf[16];
+    fmt_lap_time(buf, sizeof buf, ms);
+    ui_dash2_set_predicted(buf);
 }
 
 void UiHelper::setDisplay(uint8_t pct) {
@@ -376,41 +553,72 @@ void UiHelper::setGps(uint8_t pct) {
 }
 
 /* ============================================================================
- * SECTOR BAND
- * Mirrors LapManager's state onto the v2 band. Diffed here rather than in
- * ui_dash2, whose setters each trigger a full band repaint — and the running
- * split arrives at telemetry rate.
+ * SECTOR CELLS
+ * Mirrors LapManager's state onto the three cells. Diffed here rather than in
+ * ui_dash2, whose setters each trigger a full repaint of the row.
  * ============================================================================ */
-void UiHelper::setSectors(int current, uint32_t runningMs,
-                          const int64_t *deltaMs, const bool *valid) {
+void UiHelper::setSectors(int current, uint32_t runningMs, const int64_t *deltaMs,
+                          const uint32_t *timeMs, const bool *valid) {
     static int      lastCurrent = -2;
-    static int64_t  lastDelta[3] = { 1, 1, 1 };   /* impossible sentinel */
+    static int      lastState[3] = { -1, -1, -1 };
+    static int32_t  lastVal[3]   = { INT32_MIN, INT32_MIN, INT32_MIN };
     static uint32_t lastSplitTenths = 0xFFFFFFFF;
 
+    /* ONE writer for cell state, including which cell is active. It used to be
+     * two: this loop computed a state per cell, and ui_dash2_enter_sector() set
+     * the driven one ACTIVE behind its back. The loop then computed PENDING for
+     * that cell — correctly, it has not closed — saw PENDING already cached, and
+     * skipped the call. So the widget stayed ACTIVE with nobody able to clear it,
+     * and stopping a session or leaving demo left an amber cell showing a stale
+     * running split for ever. Folding ACTIVE into the same computation means the
+     * diff and the truth cannot drift apart. */
     for (int i = 0; i < 3; i++) {
-        int64_t d = (valid && valid[i]) ? deltaMs[i] : LapManager::LAP_SECTOR_NO_DELTA;
-        if (d == lastDelta[i]) continue;
-        lastDelta[i] = d;
-        if (d == LapManager::LAP_SECTOR_NO_DELTA)
-            ui_dash2_set_sector((dash2_sector_t)i, DASH2_SECTOR_PENDING, 0.0f);
-        else
-            ui_dash2_close_sector((dash2_sector_t)i, (float)d / 1000.0f);
+        bool    ok = (valid && valid[i]);
+        int64_t d  = ok ? deltaMs[i] : LapManager::LAP_SECTOR_NO_DELTA;
+        uint32_t t = (ok && timeMs) ? timeMs[i] : 0;
+
+        /* Four outcomes. The sector being driven is ACTIVE and carries its
+         * running split, pushed separately. A closed sector with a delta is green
+         * or red; a closed sector without one still has a split and shows it;
+         * only an unreached or voided sector is blank. */
+        dash2_sector_state_t st;
+        int32_t val;
+        if (i == current) {
+            st = DASH2_SECTOR_ACTIVE;  val = 0;
+        } else if (!ok || !t) {
+            st = DASH2_SECTOR_PENDING; val = 0;
+        } else if (d == LapManager::LAP_SECTOR_NO_DELTA) {
+            st = DASH2_SECTOR_TIMED;   val = (int32_t)t;
+        } else {
+            st = (d < 0) ? DASH2_SECTOR_FASTER : DASH2_SECTOR_SLOWER;
+            val = (int32_t)d;
+        }
+
+        if ((int)st == lastState[i] && val == lastVal[i]) continue;
+        lastState[i] = (int)st;
+        lastVal[i]   = val;
+        ui_dash2_set_sector((dash2_sector_t)i, st, (float)val / 1000.0f);
     }
 
+    /* Only to restart the split gate on entering a new sector. */
     if (current != lastCurrent) {
         lastCurrent = current;
-        if (current >= 0 && current < 3) ui_dash2_enter_sector((dash2_sector_t)current);
+        lastSplitTenths = 0xFFFFFFFF;
     }
 
-    /* The running split only needs to move at a readable rate; repainting the
-     * band on every telemetry frame would be wasted work. */
+    /* The running split, in whichever cell is active. Tenths: it only needs to
+     * move at a readable rate, and it shares a cell with a delta that is read
+     * at a glance. */
     if (current >= 0) {
         uint32_t tenths = runningMs / 100;
         if (tenths != lastSplitTenths) {
             lastSplitTenths = tenths;
             char buf[16];
-            snprintf(buf, sizeof(buf), "%u.%02u",
-                     (unsigned)(runningMs / 1000), (unsigned)((runningMs % 1000) / 10));
+            /* Zero-padded: the Barlow faces have no space glyph, so a leading zero
+             * is the only way to hold a fixed width under ten seconds. Same idiom
+             * as the clock beside it. */
+            snprintf(buf, sizeof(buf), "%02u.%01u",
+                     (unsigned)(runningMs / 1000), (unsigned)((runningMs % 1000) / 100));
             ui_dash2_set_running_split(buf);
         }
     }
@@ -1086,8 +1294,12 @@ void UiHelper::setTheme(dash_mode_t mode) {
 extern "C" void ui_helper_stop_session(void);   /* implemented in main_display */
 
 static void rec_cell_cb(lv_event_t *e) {
-    /* Same behaviour the old dashboard panel had: tap it to stop. */
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_helper_stop_session();
+    /* Same behaviour the old dashboard panel had: tap it to stop. The cell
+     * doubles as the DEMO indicator, so it has to stop whichever is running;
+     * both calls are no-ops when their mode is not active. */
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ui_helper_exit_demo_mode();
+    ui_helper_stop_session();
 }
 
 void UiHelper::build_rec_cell(void) {
@@ -1133,33 +1345,55 @@ static void rec_blink_cb(void *obj, int32_t v) {
     lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
 }
 
-void UiHelper::setSessionState(bool active) {
-    if (ui_labelstartsession)
-        lv_label_set_text(ui_labelstartsession, active ? "STOP SESSION" : "START SESSION");
+/* mode: 0 off, 1 REC, 2 DEMO. */
+void UiHelper::set_rec_cell(int mode) {
+    if (!s_rec_panel || mode == s_rec_mode) return;
+    s_rec_mode = mode;
 
-    if (!s_rec_panel) return;
-    if (active == s_rec_active) return;
-    s_rec_active = active;
-
-    if (active) {
-        lv_obj_remove_flag(s_rec_panel, LV_OBJ_FLAG_HIDDEN);
-        /* Blink via LVGL's animator rather than repainting from loop(): in this
-         * backend every style write costs a full-frame QSPI blit, and the old
-         * per-frame tick was doing that twice a second forever. */
-        lv_anim_t a;
-        lv_anim_init(&a);
-        lv_anim_set_var(&a, s_rec_dot);
-        lv_anim_set_exec_cb(&a, rec_blink_cb);
-        lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_20);
-        lv_anim_set_duration(&a, 450);
-        lv_anim_set_playback_duration(&a, 450);
-        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_start(&a);
-    } else {
+    if (mode == 0) {
         lv_anim_delete(s_rec_dot, rec_blink_cb);
         lv_obj_set_style_opa(s_rec_dot, LV_OPA_COVER, 0);
         lv_obj_add_flag(s_rec_panel, LV_OBJ_FLAG_HIDDEN);
+        return;
     }
+
+    /* Accent, not red: red on this bar means "your laps are being written to
+     * the card", and nothing in demo mode is. */
+    uint32_t col = (mode == 2) ? T.accent : T.bad;
+    lv_label_set_text(s_rec_lbl, (mode == 2) ? "DEMO" : "REC");
+    lv_obj_set_style_text_color(s_rec_lbl, C(col), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_rec_dot, C(col), 0);
+    lv_obj_remove_flag(s_rec_panel, LV_OBJ_FLAG_HIDDEN);
+
+    /* Restarted rather than left running, so switching straight from one mode
+     * to the other cannot leave the dot mid-fade at the old colour.
+     *
+     * Blink via LVGL's animator rather than repainting from loop(): in this
+     * backend every style write costs a full-frame QSPI blit, and the old
+     * per-frame tick was doing that twice a second forever. */
+    lv_anim_delete(s_rec_dot, rec_blink_cb);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_rec_dot);
+    lv_anim_set_exec_cb(&a, rec_blink_cb);
+    lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_20);
+    lv_anim_set_duration(&a, 450);
+    lv_anim_set_playback_duration(&a, 450);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
+}
+
+void UiHelper::setSessionState(bool active) {
+    if (ui_labelstartsession)
+        lv_label_set_text(ui_labelstartsession, active ? "STOP SESSION" : "START SESSION");
+    set_rec_cell(active ? 1 : 0);
+}
+
+void UiHelper::setDemoState(bool on) {
+    /* Never clobbers a live REC: a session and a demo cannot both be running,
+     * and if they somehow were, the recording is the one that must show. */
+    if (!on && s_rec_mode != 2) return;
+    set_rec_cell(on ? 2 : 0);
 }
 
 /* Kept so the call site in loop() needs no #ifdef. The blink is an LVGL

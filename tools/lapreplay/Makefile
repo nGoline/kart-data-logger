@@ -8,28 +8,51 @@
 
 ROOT    := ../..
 CXXFLAGS := -std=c++17 -O2 -Wall -Wextra \
-            -Ishim -I$(ROOT)/lib/LapManager -I$(ROOT)/lib/Shared
+            -Ishim -I$(ROOT)/lib/LapManager -I$(ROOT)/lib/Shared \
+            -I$(ROOT)/lib/DemoTrack
 
 ifdef VERBOSE
 CXXFLAGS += -DREPLAY_VERBOSE=1
 endif
 
-all: replay sectors navpvt
+# Headers as explicit prerequisites. Without these, make sees only the .cpp
+# files and happily reuses a binary built against an older header — editing
+# LapManager.h or DemoTrack.h and re-running gives you the previous build's
+# numbers with no warning, which is a genuinely expensive way to be misled.
+LAP_H  := $(ROOT)/lib/LapManager/LapManager.h $(ROOT)/lib/Shared/EspNowProtocol.h
+DEMO_H := $(ROOT)/lib/DemoTrack/DemoTrack.h
 
-replay: replay.cpp $(ROOT)/lib/LapManager/LapManager.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $^
+all: replay sectors delta demo navpvt
+
+replay: replay.cpp $(ROOT)/lib/LapManager/LapManager.cpp $(LAP_H)
+	$(CXX) $(CXXFLAGS) -o $@ replay.cpp $(ROOT)/lib/LapManager/LapManager.cpp
 
 # Same harness with split gates, for validating sector timing against a
 # circuit's official sheet.
-sectors: sectors.cpp $(ROOT)/lib/LapManager/LapManager.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $^
+sectors: sectors.cpp $(ROOT)/lib/LapManager/LapManager.cpp $(LAP_H)
+	$(CXX) $(CXXFLAGS) -o $@ sectors.cpp $(ROOT)/lib/LapManager/LapManager.cpp
+
+# Live lap delta: replays a session and checks the continuously matched delta
+# against the arithmetic one at every line crossing. Run it after touching the
+# reference-trace matching: a wrong match produces a plausible number, not a
+# crash, and the track is a poor place to find that out.
+delta: delta.cpp $(ROOT)/lib/LapManager/LapManager.cpp $(LAP_H)
+	$(CXX) $(CXXFLAGS) -o $@ delta.cpp $(ROOT)/lib/LapManager/LapManager.cpp
+
+# DEMO mode's synthetic track, driven through the real LapManager. Catches the
+# one failure that is invisible on the bench: a gate wound the wrong way round
+# is not an error, it is a lap counter stuck at zero.
+demo: demo.cpp $(ROOT)/lib/LapManager/LapManager.cpp $(LAP_H) $(DEMO_H)
+	$(CXX) $(CXXFLAGS) -o $@ demo.cpp $(ROOT)/lib/LapManager/LapManager.cpp
 
 # Offset-level check on the real UBX-NAV-PVT reader. Run it after touching
 # UbloxGpsProvider — a wrong byte offset produces plausible telemetry, not a crash.
-navpvt: navpvt.cpp $(ROOT)/lib/GpsManager/providers/UbloxGpsProvider.cpp
-	$(CXX) $(CXXFLAGS) -I$(ROOT)/lib/GpsManager/providers -o $@ $^
+navpvt: navpvt.cpp $(ROOT)/lib/GpsManager/providers/UbloxGpsProvider.cpp \
+        $(ROOT)/lib/GpsManager/providers/UbloxGpsProvider.h $(ROOT)/lib/GpsManager/IGpsProvider.h
+	$(CXX) $(CXXFLAGS) -I$(ROOT)/lib/GpsManager/providers -o $@ \
+	    navpvt.cpp $(ROOT)/lib/GpsManager/providers/UbloxGpsProvider.cpp
 
 clean:
-	rm -f replay sectors navpvt
+	rm -f replay sectors delta demo navpvt
 
 .PHONY: clean
