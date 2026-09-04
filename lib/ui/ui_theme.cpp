@@ -65,8 +65,12 @@ static void countdown_tick_cb(lv_timer_t *) {
             s_count_label = nullptr;
         }
         ui_helper_toggle_session();
-        _ui_screen_change(&ui_dashboardscreen, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 500, 0,
-                          &ui_dashboardscreen_screen_init);
+        /* Already on the dashboard when the countdown was started from the
+         * physical button — re-loading the active screen would replay the
+         * transition animation over itself. */
+        if (lv_screen_active() != ui_dashboardscreen)
+            _ui_screen_change(&ui_dashboardscreen, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 500, 0,
+                              &ui_dashboardscreen_screen_init);
     }
 }
 
@@ -77,8 +81,12 @@ void ui_session_clicked(lv_event_t *) {
     const TrackConfig *tc = configManager.getTrack(idx);
     const char *track_name = (tc && tc->name[0]) ? tc->name : "—";
 
-    // Full-screen semi-opaque overlay parented to the config screen
-    s_overlay = lv_obj_create(ui_configscreen);
+    /* Parented to whatever screen is showing, not to the config screen. Tapped
+     * from the config screen those are the same object, so this is unchanged for
+     * the on-screen button — but the physical session button fires from the
+     * dashboard, and an overlay hung on the config screen counts down invisibly
+     * and then starts a session the driver never saw confirmed. */
+    s_overlay = lv_obj_create(lv_screen_active());
     lv_obj_set_size(s_overlay, 480, 320);
     lv_obj_set_pos(s_overlay, 0, 0);
     lv_obj_remove_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
