@@ -41,6 +41,12 @@ static const dash_theme_t THEME_DAY = {
     .good_deep = 0x0A5933, .bad_deep = 0x3A2425
 };
 
+/* Lap/clock times on the dash, always m:ss.mmm. Dropping the "0:" under a
+ * minute reflows the string as a time crosses sixty seconds, which is the
+ * jitter the tabular faces exist to remove; lib/DashV2's widths are budgeted
+ * for this form. */
+void dashFmtTime(char *out, size_t n, uint32_t ms);
+
 class UiHelper {
 public:
     void init();
@@ -50,7 +56,15 @@ public:
     void setLap(uint8_t lap_num,
                 const char *lap_str,                   /* e.g. "1:23.74" */
                 const char *best_str);                 /* e.g. "1:23.32" */
-    void setDelta(float seconds, bool faster);         /* faster = green pill */
+    /* Live lap delta. Called every frame; `valid` false blanks it, which is
+     * what to show before a reference lap exists. Self-filtering, because
+     * ui_dash2_set_delta repaints the panel and four labels. Ignored while a
+     * best-lap flash is holding. */
+    void setLiveDelta(float seconds, bool valid);
+
+    /* Latch the purple session-best state at the line for a few seconds, then
+     * hand back to the live delta. `valid` false on the first timed lap. */
+    void flashBestLap(float seconds, bool valid);
     void setDisplay(uint8_t pct);                      /* battery level */
 
     /* --- Charge mode --- */
@@ -64,12 +78,24 @@ public:
                  const char *ip);
     void setWifiError(void);                           /* portal failed to start */
 
-    /* Sector band. `current` is the sector being driven (-1 none); `runningMs`
-     * is its elapsed time. For each closed sector pass its delta vs its own
-     * previous best in ms, or LAP_SECTOR_NO_DELTA when there is nothing to
-     * compare with. Self-filtering: unchanged state costs nothing. */
-    void setSectors(int current, uint32_t runningMs,
-                    const int64_t *deltaMs, const bool *valid);
+    /* Lap clock, bottom-left. */
+    void setLapClock(uint32_t runningMs);
+
+    /* Split-relative, not the cumulative lap delta — see LapManager's
+     * virtual-splits block. Gated finer than the number beside it: this is
+     * read without looking, and costs one resize, not a panel repaint. */
+    void setDeltaBar(float splitSeconds, bool valid);
+
+    /* Predicted lap time: the reference lap plus the delta being carried. */
+    void setPredicted(uint32_t ms, bool valid);
+
+    /* Sector cells. `current` is the sector being driven (-1 none), `runningMs`
+     * its elapsed time. For each closed sector pass its delta vs its own
+     * previous best in `deltaMs` (or LAP_SECTOR_NO_DELTA) AND its split in
+     * `timeMs` — a sector that closes without a comparison still has a time,
+     * and showing it is what stops the cell blanking. Self-filtering. */
+    void setSectors(int current, uint32_t runningMs, const int64_t *deltaMs,
+                    const uint32_t *timeMs, const bool *valid);
     void setTheme(dash_mode_t mode);                   /* day / night swap */
     void setSessionState(bool active);                 /* updates button label + recording panel */
     void tickRecordingPanel();                         /* call every frame to drive the blink */
@@ -89,6 +115,9 @@ public:
     void setAlert(uint16_t errors, uint16_t warnings);
 
 private:
+    static void paint_delta(float seconds, bool valid,
+                            dash2_delta_state_t st, uint32_t now, bool force);
+
     static void build_alert_banner(void);
     static uint32_t batt_color(uint8_t pct);
     static uint32_t gps_color(uint8_t n);

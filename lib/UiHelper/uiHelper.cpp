@@ -118,7 +118,7 @@ void UiHelper::init() {
     setSpeed(0);
     setGx(0);
     setGy(0);
-    setDelta(0, true);
+    setLiveDelta(0, false);   /* no reference lap yet: blank, not "0.00" */
     setLap(0, "", "");
 
     // Track setup initialization
@@ -346,9 +346,125 @@ void UiHelper::setLap(uint8_t lap_num, const char *lap_str, const char *best_str
     ui_dash2_set_lap((int)lap_num, lap_str, best_str);
 }
 
-/* v2 takes a signed delta; ours has always been magnitude + direction. */
-void UiHelper::setDelta(float seconds, bool faster) {
-    ui_dash2_set_delta(faster ? -fabsf(seconds) : fabsf(seconds));
+/* ============================================================================
+ * LAP DELTA HERO PANEL
+ * The delta arrives per fix, so this gate keeps a 25 Hz number off a widget
+ * that repaints itself and four labels whenever it is touched.
+ * ============================================================================ */
+
+/* ~5 Hz. Two decimals cannot be read faster than that, and a full-frame blit
+ * per telemetry sample would cost the dashboard its frame rate. */
+#define DELTA_MIN_REPAINT_MS 200
+
+/* Colour hysteresis, in seconds. A live delta sits near zero for much of a lap
+ * and a metre of hAcc is worth six hundredths at 60 km/h, so a bare `< 0` test
+ * strobes green/red on noise. Only the colour is damped. */
+#define DELTA_DEADBAND_S 0.05f
+
+/* How long purple holds at the line before the new lap's live delta takes
+ * over. Long enough to read coming past the pits, short enough that the first
+ * corner is already being coached. */
+#define DELTA_BEST_HOLD_MS 4000
+
+static uint32_t s_delta_flash_until = 0;    /* 0 = not flashing */
+static int32_t  s_delta_shown_cs    = INT32_MIN;
+static int      s_delta_shown_state = -1;
+static uint32_t s_delta_painted_ms  = 0;
+static bool     s_delta_painted     = false;
+static bool     s_delta_faster      = true; /* the deadband's remembered side */
+
+void UiHelper::paint_delta(float seconds, bool valid, dash2_delta_state_t st,
+                           uint32_t now, bool force) {
+    /* Diff on what is actually drawn (the hundredth and the colour), not on
+     * the float, which changes on every fix and would defeat the whole point. */
+    int32_t cs = valid ? (int32_t)lroundf(seconds * 100.0f) : INT32_MIN;
+    if (!force && s_delta_painted) {
+        if (cs == s_delta_shown_cs && (int)st == s_delta_shown_state) return;
+        if ((uint32_t)(now - s_delta_painted_ms) < DELTA_MIN_REPAINT_MS) return;
+    }
+    s_delta_painted     = true;
+    s_delta_shown_cs    = cs;
+    s_delta_shown_state = (int)st;
+    s_delta_painted_ms  = now;
+    ui_dash2_set_delta(valid ? seconds : 0.0f, st, valid);
+}
+
+void UiHelper::setLiveDelta(float seconds, bool valid) {
+    uint32_t now = millis();
+
+    /* Purple owns the panel until it expires. Signed compare so the hold ends
+     * correctly across a millis() wrap. */
+    if (s_delta_flash_until) {
+        if ((int32_t)(now - s_delta_flash_until) < 0) return;
+        s_delta_flash_until = 0;
+    }
+
+    dash2_delta_state_t st = DASH2_DELTA_NONE;
+    if (valid) {
+        if      (seconds >  DELTA_DEADBAND_S) s_delta_faster = false;
+        else if (seconds < -DELTA_DEADBAND_S) s_delta_faster = true;
+        /* Inside the band the last side stands, and it starts green, so an
+         * exact zero reads as level rather than as behind. */
+        st = s_delta_faster ? DASH2_DELTA_FASTER : DASH2_DELTA_SLOWER;
+    }
+    paint_delta(seconds, valid, st, now, false);
+}
+
+void UiHelper::flashBestLap(float seconds, bool valid) {
+    uint32_t now = millis();
+    s_delta_flash_until = now + DELTA_BEST_HOLD_MS;
+    if (!s_delta_flash_until) s_delta_flash_until = 1;   /* 0 means "not flashing" */
+    s_delta_faster = true;      /* the new lap starts level with the lap it chases */
+    paint_delta(seconds, valid, DASH2_DELTA_BEST, now, true);
+}
+
+void dashFmtTime(char *out, size_t n, uint32_t ms) {
+    snprintf(out, n, "%u:%02u.%03u", (unsigned)(ms / 60000),
+             (unsigned)((ms % 60000) / 1000), (unsigned)(ms % 1000));
+}
+
+void UiHelper::setLapClock(uint32_t runningMs) {
+    static uint32_t shown = 0xFFFFFFFF;
+    if (runningMs == shown) return;     /* no fix this frame, or not timing */
+    shown = runningMs;
+
+    /* No rate gate, unlike the delta: this is one label on a PARTIAL render
+     * path, and a lap clock ticking at 5 Hz reads as broken. */
+    char buf[16];
+    dashFmtTime(buf, sizeof buf, runningMs);
+    ui_dash2_set_lap_clock(buf);
+}
+
+/* Finer than the delta number's gate: about a pixel of bar travel. The bar is
+ * read peripherally so it should slide rather than step, and it costs one
+ * resize on a PARTIAL render path, not a panel repaint. */
+#define DELTA_BAR_STEP_S 0.005f
+
+void UiHelper::setDeltaBar(float splitSeconds, bool valid) {
+    /* INT32_MIN is the "nothing shown" quantum and so carries the valid flag
+     * too: q takes it exactly when !valid, and no reachable split delta
+     * quantises near it. */
+    static int32_t shown = INT32_MIN;
+    int32_t q = valid ? (int32_t)lroundf(splitSeconds / DELTA_BAR_STEP_S) : INT32_MIN;
+    if (q == shown) return;
+    shown = q;
+    ui_dash2_set_delta_bar(splitSeconds, valid);
+}
+
+void UiHelper::setPredicted(uint32_t ms, bool valid) {
+    static uint32_t shown = 0xFFFFFFFF;
+    static uint32_t paintedMs = 0;
+    if (!valid) return;                 /* the panel hides it via setLiveDelta */
+    uint32_t now = millis();
+    if (ms == shown) return;
+    /* Same 5 Hz as the delta number it sits beside: seven digits cannot be read
+     * faster, and the milliseconds are a blur either way. */
+    if ((uint32_t)(now - paintedMs) < DELTA_MIN_REPAINT_MS) return;
+    shown = ms; paintedMs = now;
+
+    char buf[16];
+    dashFmtTime(buf, sizeof buf, ms);
+    ui_dash2_set_predicted(buf);
 }
 
 void UiHelper::setDisplay(uint8_t pct) {
@@ -376,41 +492,69 @@ void UiHelper::setGps(uint8_t pct) {
 }
 
 /* ============================================================================
- * SECTOR BAND
- * Mirrors LapManager's state onto the v2 band. Diffed here rather than in
- * ui_dash2, whose setters each trigger a full band repaint — and the running
- * split arrives at telemetry rate.
+ * SECTOR CELLS
+ * Mirrors LapManager's state onto the three cells. Diffed here rather than in
+ * ui_dash2, whose setters each trigger a full repaint of the row.
  * ============================================================================ */
-void UiHelper::setSectors(int current, uint32_t runningMs,
-                          const int64_t *deltaMs, const bool *valid) {
+void UiHelper::setSectors(int current, uint32_t runningMs, const int64_t *deltaMs,
+                          const uint32_t *timeMs, const bool *valid) {
     static int      lastCurrent = -2;
-    static int64_t  lastDelta[3] = { 1, 1, 1 };   /* impossible sentinel */
+    static int      lastState[3] = { -1, -1, -1 };
+    static int32_t  lastVal[3]   = { INT32_MIN, INT32_MIN, INT32_MIN };
     static uint32_t lastSplitTenths = 0xFFFFFFFF;
 
+    /* ONE writer for cell state, including which cell is active. It used to be
+     * two: this loop computed a state per cell, and a separate enter-sector call
+     * set the driven one ACTIVE behind its back. The loop then computed PENDING
+     * for that cell — correctly, it has not closed — saw PENDING already cached,
+     * and skipped the call. So the widget stayed ACTIVE with nobody able to
+     * clear it, and stopping a session left an amber cell showing a stale
+     * running split for ever. Folding ACTIVE into the same
+     * computation means the diff and the truth cannot drift apart, and
+     * ui_dash2_set_sector() is now the only way in. */
     for (int i = 0; i < 3; i++) {
-        int64_t d = (valid && valid[i]) ? deltaMs[i] : LapManager::LAP_SECTOR_NO_DELTA;
-        if (d == lastDelta[i]) continue;
-        lastDelta[i] = d;
-        if (d == LapManager::LAP_SECTOR_NO_DELTA)
-            ui_dash2_set_sector((dash2_sector_t)i, DASH2_SECTOR_PENDING, 0.0f);
-        else
-            ui_dash2_close_sector((dash2_sector_t)i, (float)d / 1000.0f);
+        bool    ok = (valid && valid[i]);
+        int64_t d  = ok ? deltaMs[i] : LapManager::LAP_SECTOR_NO_DELTA;
+        uint32_t t = (ok && timeMs) ? timeMs[i] : 0;
+
+        /* Driven is ACTIVE and carries its running split; closed with a delta
+         * is green or red; closed without one still shows its split; only an
+         * unreached or voided sector is blank. */
+        dash2_sector_state_t st;
+        int32_t val;
+        if (i == current) {
+            st = DASH2_SECTOR_ACTIVE;  val = 0;
+        } else if (!ok || !t) {
+            st = DASH2_SECTOR_PENDING; val = 0;
+        } else if (d == LapManager::LAP_SECTOR_NO_DELTA) {
+            st = DASH2_SECTOR_TIMED;   val = (int32_t)t;
+        } else {
+            st = (d < 0) ? DASH2_SECTOR_FASTER : DASH2_SECTOR_SLOWER;
+            val = (int32_t)d;
+        }
+
+        if ((int)st == lastState[i] && val == lastVal[i]) continue;
+        lastState[i] = (int)st;
+        lastVal[i]   = val;
+        ui_dash2_set_sector((dash2_sector_t)i, st, (float)val / 1000.0f);
     }
 
     if (current != lastCurrent) {
         lastCurrent = current;
-        if (current >= 0 && current < 3) ui_dash2_enter_sector((dash2_sector_t)current);
+        lastSplitTenths = 0xFFFFFFFF;
     }
 
-    /* The running split only needs to move at a readable rate; repainting the
-     * band on every telemetry frame would be wasted work. */
+    /* The running split, in whichever cell is active. Tenths — it only needs
+     * to move at a readable rate. */
     if (current >= 0) {
         uint32_t tenths = runningMs / 100;
         if (tenths != lastSplitTenths) {
             lastSplitTenths = tenths;
             char buf[16];
-            snprintf(buf, sizeof(buf), "%u.%02u",
-                     (unsigned)(runningMs / 1000), (unsigned)((runningMs % 1000) / 10));
+            /* Zero-padded: the Barlow faces have no space glyph, so a leading
+             * zero is the only fixed width under ten seconds. */
+            snprintf(buf, sizeof(buf), "%02u.%01u",
+                     (unsigned)(runningMs / 1000), (unsigned)((runningMs % 1000) / 100));
             ui_dash2_set_running_split(buf);
         }
     }
@@ -1162,8 +1306,6 @@ void UiHelper::setSessionState(bool active) {
     }
 }
 
-/* Kept so the call site in loop() needs no #ifdef. The blink is an LVGL
- * animation now, so there is nothing to tick. */
 void UiHelper::tickRecordingPanel() {}
 
 /* ============================================================================
