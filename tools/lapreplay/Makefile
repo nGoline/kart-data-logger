@@ -19,6 +19,7 @@ endif
 # against an older header, so editing LapManager.h and re-running gives the
 # previous build's numbers with no warning.
 LAP_H  := $(ROOT)/lib/LapManager/LapManager.h $(ROOT)/lib/Shared/EspNowProtocol.h
+DEMO_H := $(ROOT)/lib/DemoTrack/DemoTrack.h
 
 # replay   — finish-line detection over a recorded session.
 # sectors  — the same with split gates, for validating sector timing against a
@@ -27,7 +28,10 @@ LAP_H  := $(ROOT)/lib/LapManager/LapManager.h $(ROOT)/lib/Shared/EspNowProtocol.
 #            arithmetic one at every line crossing. Run it after touching the
 #            reference-trace matching; a wrong match produces a plausible
 #            number, not a crash, and the track is a poor place to find out.
-LAPTOOLS := replay sectors delta
+# demo     — DEMO mode's synthetic track through the real LapManager. Catches
+#            the one failure invisible on the bench: a gate wound the wrong way
+#            round is not an error, it is a lap counter stuck at zero.
+LAPTOOLS := replay sectors delta demo
 
 all: $(LAPTOOLS) navpvt
 
@@ -35,6 +39,8 @@ all: $(LAPTOOLS) navpvt
 # prerequisites.
 $(LAPTOOLS): %: %.cpp $(ROOT)/lib/LapManager/LapManager.cpp $(LAP_H) shim/harness.h
 	$(CXX) $(CXXFLAGS) -o $@ $(filter %.cpp,$^)
+
+demo: $(DEMO_H)
 
 # Offset-level check on the real UBX-NAV-PVT reader. Run it after touching
 # UbloxGpsProvider — a wrong byte offset produces plausible telemetry, not a crash.
@@ -44,6 +50,6 @@ navpvt: navpvt.cpp $(ROOT)/lib/GpsManager/providers/UbloxGpsProvider.cpp \
 	    navpvt.cpp $(ROOT)/lib/GpsManager/providers/UbloxGpsProvider.cpp
 
 clean:
-	rm -f replay sectors delta navpvt
+	rm -f replay sectors delta demo navpvt
 
 .PHONY: clean
