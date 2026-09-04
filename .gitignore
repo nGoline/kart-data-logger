@@ -23,3 +23,6 @@ tools/data/replay_*.csv
 
 # Device config pulled off the card for inspection — not repo state.
 /tracks.ini
+
+# Backstop: the tools/ Makefiles keep objects under their own build/ dirs.
+*.o
