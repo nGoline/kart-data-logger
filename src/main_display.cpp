@@ -915,18 +915,6 @@ void loop() {
         // QSPI flush health: report dropped frames and the worst bus-idle wait in
         // the last second, then reset the stall high-water mark. A blink should line
         // up with either a frame_drops increment (hard skip) or a high max_stall.
-
-        /* Enqueue HERE, once per frame. This used to live in syncUI() behind the
-         * newTelemetryAvailable flag, which is a one-slot handoff: whatever
-         * arrived between UI passes was overwritten and never reached the queue.
-         * Zero timeout still, so a full queue drops the row rather than blocking
-         * the UI — but now that is a real drop the health counter can see. */
-        if (LogManager::logQueue != NULL && logManager.isSessionActive()) {
-            if (xQueueSend(LogManager::logQueue, &telemetry, 0) != pdTRUE) {
-                logManager.noteDroppedFrame();
-            }
-        }
-
         static uint32_t lastFrameDrops = 0;
         uint32_t drops = lvgl_port_frame_drops;
         uint32_t stallUs = lvgl_port_max_stall_us;
