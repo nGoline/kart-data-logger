@@ -7,6 +7,7 @@
  *   ./replay <csv> <leftLat> <leftLng> <rightLat> <rightLng>
  */
 #include "LapManager.h"
+#include "harness.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -17,14 +18,6 @@ static double haversine(double lat1, double lon1, double lat2, double lon2) {
     double a = 0.5 - cos((lat2-lat1)*p)/2 +
                cos(lat1*p)*cos(lat2*p)*(1-cos((lon2-lon1)*p))/2;
     return 12742000 * asin(sqrt(a));
-}
-
-static void fmt(uint64_t ms, char *out, size_t n) {
-    unsigned m = (unsigned)(ms / 60000);
-    unsigned s = (unsigned)((ms % 60000) / 1000);
-    unsigned f = (unsigned)(ms % 1000);
-    if (m) snprintf(out, n, "%u:%02u.%03u", m, s, f);
-    else   snprintf(out, n, "%u.%03u", s, f);
 }
 
 int main(int argc, char **argv) {
@@ -59,30 +52,8 @@ int main(int argc, char **argv) {
     uint64_t firstT = 0, lastT = 0;
     bool wasNear = false;
 
-    while (fgets(line, sizeof line, fp)) {
-        // TelemetryMsg is packed, so scan into aligned locals rather than
-        // handing sscanf the addresses of its members.
-        unsigned long long ts;
-        double speed, totalG, gx, gy, steer, lat, lng;
-        int sats;
-        // epoch,speed,totalGForce,gForceX,gForceY,steering_angle,sats,lat,lng
-        if (sscanf(line, "%llu,%lf,%lf,%lf,%lf,%lf,%d,%lf,%lf",
-                   &ts, &speed, &totalG, &gx, &gy, &steer, &sats, &lat, &lng) != 9)
-            continue;
-
-        TelemetryMsg m{};
-        m.type          = MSG_TELEMETRY;
-        m.timestamp     = (uint64_t)ts;
-        m.speedKmph     = (float)speed;
-        m.totalGForce   = (float)totalG;
-        m.gForceX       = (float)gx;
-        m.gForceY       = (float)gy;
-        m.lat           = lat;
-        m.lng           = lng;
-        m.sats          = (uint8_t)sats;
-        m.hasFix        = sats > 0 ? 1 : 0;
-        m.steeringAngle = (float)steer;
-
+    TelemetryMsg m;
+    while (read_row(fp, m)) {
         if (!rows) firstT = m.timestamp;
         lastT = m.timestamp;
         rows++;

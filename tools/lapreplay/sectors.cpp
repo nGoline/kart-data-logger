@@ -12,18 +12,11 @@
  *       <s2LL>  <s2LN>  <s2RL>  <s2RN>
  */
 #include "LapManager.h"
+#include "harness.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-
-static void fmt(uint64_t ms, char *out, size_t n) {
-    unsigned m = (unsigned)(ms / 60000);
-    unsigned s = (unsigned)((ms % 60000) / 1000);
-    unsigned f = (unsigned)(ms % 1000);
-    if (m) snprintf(out, n, "%u:%02u.%03u", m, s, f);
-    else   snprintf(out, n, "%u.%03u", s, f);
-}
 
 int main(int argc, char **argv) {
     if (argc < 14) {
@@ -49,22 +42,8 @@ int main(int argc, char **argv) {
     if (!fgets(line, sizeof line, fp)) return 1;   // header
 
     size_t laps = 0;
-    while (fgets(line, sizeof line, fp)) {
-        unsigned long long ts;
-        double speed, totalG, gx, gy, steer, lat, lng;
-        int sats;
-        if (sscanf(line, "%llu,%lf,%lf,%lf,%lf,%lf,%d,%lf,%lf",
-                   &ts, &speed, &totalG, &gx, &gy, &steer, &sats, &lat, &lng) != 9)
-            continue;
-
-        TelemetryMsg m{};
-        m.type      = MSG_TELEMETRY;
-        m.timestamp = (uint64_t)ts;
-        m.speedKmph = (float)speed;
-        m.lat = lat; m.lng = lng;
-        m.sats = (uint8_t)sats;
-        m.hasFix = sats > 0 ? 1 : 0;
-
+    TelemetryMsg m;
+    while (read_row(fp, m)) {
         if (lap.processTelemetry(m)) {
             uint64_t lastMs = lap.getLastLapTime();
             if (!lastMs) { laps++; continue; }      /* first crossing starts timing */

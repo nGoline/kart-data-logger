@@ -8,6 +8,10 @@ track.
 Nothing here is part of the firmware build. `tools/` is outside `build_src_filter`
 and `lib/`, so PlatformIO never sees it.
 
+`make` also builds **`delta`**, which checks the *live* lap delta: the number
+the dash hero panel shows continuously, from matching each fix against a
+reference lap's recorded trace. See "Testing the live delta" below.
+
 `make` also builds **`navpvt`**, an offset-level check on the real
 `UbloxGpsProvider::update()` — it feeds synthetic `UBX-NAV-PVT` frames through a
 byte-queue serial stub and asserts what the provider decodes. Run it after touching
@@ -53,6 +57,36 @@ python3 gpmf_to_csv.py ../../video/GH011973.MP4 looped.csv --repeat 4
 
 Each reported lap should equal the printed span exactly; any drift is a bug in
 the crossing interpolation.
+
+### Testing the live delta
+
+The hero panel's delta comes from `LapManager`'s reference trace: the lap in
+progress is recorded as position plus elapsed time, the session's best lap is
+kept as the reference, and every fix is matched to the nearest point on it. A
+wrong match does not crash, it produces a plausible number that is quietly
+attached to the wrong piece of track, which is the worst way to find out at a
+circuit. `delta` catches that offline:
+
+```sh
+python3 gps_raw_to_log.py --out /tmp/session.csv ../data/gps_raw_GH0*1974.csv
+./delta /tmp/session.csv -23.605392 -46.836045 -23.605442 -46.836251
+```
+
+The `err` column is the check. At the line the live delta must agree with the
+arithmetic one (this lap's time minus the reference lap's), because the two are
+the same comparison reached by completely different routes: one by matching
+1,000-odd fixes against a polyline, the other by subtracting two crossing
+timestamps. On the 12-lap fixture they agree to within 22 ms on every lap, and
+the harness exits non-zero if any lap drifts past 250 ms.
+
+`moves` and `held` say how many fixes changed the number and how many repeated
+it. A delta that "moves" once per lap would be the old behaviour, and the
+point of the whole feature is that it does not. `--dump` emits
+`epoch,lap,elapsed_ms,delta_ms` per fix for plotting the trace of a lap.
+
+The trace buffers are allocated by the caller, here and in the firmware, which
+is what lets `LapManager` stay host-clean: on the dash they come from PSRAM, in
+this harness from `new[]`.
 
 ## Column mapping
 

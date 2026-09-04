@@ -2,4 +2,6 @@ replay
 *.csv
 __pycache__/
 sectors
+delta
+demo
 navpvt
