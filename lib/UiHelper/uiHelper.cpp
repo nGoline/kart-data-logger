@@ -164,6 +164,7 @@ void UiHelper::init() {
     build_demo_button();
     build_version_label();
     build_alert_banner();
+    build_hold_overlay();
 
     bsp_display_unlock();
 }
@@ -840,6 +841,63 @@ void UiHelper::setAlert(uint16_t errors, uint16_t warnings) {
     lv_obj_set_style_border_color(s_alert, C(errors ? T.bad : T.accent),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_remove_flag(s_alert, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Stop-session countdown, shown while the physical button is held. Built onto the
+ * dashboard at runtime like the alert banner above, so the SquareLine export stays
+ * untouched. Centred and large on purpose: it is read at arm's length, on a kart,
+ * through a helmet visor. */
+static lv_obj_t *s_hold      = nullptr;
+static lv_obj_t *s_hold_num  = nullptr;
+static lv_obj_t *s_hold_cap  = nullptr;
+static uint8_t   s_hold_secs = 0;
+
+void UiHelper::build_hold_overlay(void) {
+    if (!ui_dashboardscreen || s_hold) return;
+
+    s_hold = lv_obj_create(ui_dashboardscreen);
+    lv_obj_set_size(s_hold, 200, 150);
+    lv_obj_center(s_hold);
+    lv_obj_remove_flag(s_hold, LV_OBJ_FLAG_SCROLLABLE);
+    /* Not clickable: it sits over the dashboard's own controls, and swallowing
+     * touches while it is up would be a second way to fumble a stop. */
+    lv_obj_remove_flag(s_hold, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(s_hold, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_hold, C(T.bad_deep), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_hold, 240, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(s_hold, C(T.bad), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(s_hold, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(s_hold, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_hold, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_hold, LV_OBJ_FLAG_HIDDEN);
+
+    s_hold_num = lv_label_create(s_hold);
+    lv_obj_align(s_hold_num, LV_ALIGN_CENTER, 0, -12);
+    lv_label_set_text(s_hold_num, "3");
+    lv_obj_set_style_text_color(s_hold_num, C(T.fg), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(s_hold_num, &lv_font_montserrat_48, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    s_hold_cap = lv_label_create(s_hold);
+    lv_obj_align(s_hold_cap, LV_ALIGN_BOTTOM_MID, 0, -14);
+    lv_label_set_text(s_hold_cap, "HOLD TO STOP");
+    lv_obj_set_style_text_color(s_hold_cap, C(T.fg2), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(s_hold_cap, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+void UiHelper::setHoldCountdown(uint8_t secondsLeft) {
+    if (!s_hold) return;
+    /* Self-filtering: this runs every pass while the button is down, and the
+     * value only changes once a second. */
+    if (secondsLeft == s_hold_secs) return;
+    s_hold_secs = secondsLeft;
+
+    if (secondsLeft == 0) {
+        lv_obj_add_flag(s_hold, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    lv_label_set_text_fmt(s_hold_num, "%u", (unsigned)secondsLeft);
+    lv_obj_remove_flag(s_hold, LV_OBJ_FLAG_HIDDEN);
 }
 
 void UiHelper::refresh_wifi(void) {

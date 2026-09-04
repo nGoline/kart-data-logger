@@ -13,7 +13,9 @@ extern "C" {
 #include "LogManager.h"
 #include "EspNowProtocol.h"
 #include "uiHelper.h"
+#include "ui_theme.h"   /* ui_session_clicked() — the start countdown overlay */
 #include "BatteryManager.h"
+#include "SessionButton.h"
 #include "ConfigManager.h"
 #include "LapManager.h"
 #include "DemoTrack.h"
@@ -130,6 +132,32 @@ uint32_t lastImuReadMs = 0;
 #define DISPLAY_BATT_READ_INTERVAL_MS 5000
 BatteryManager displayBattery(DISPLAY_BATT_ADC, 0xFF, 1.7269f);
 static uint32_t lastDisplayBattReadMs = 0;
+
+#if defined(SESSION_BUTTON_PIN)
+/* Physical session button: tap to start, hold to stop. Pin and polarity are build
+ * flags because both are properties of the wiring loom, not of the firmware — see
+ * the pin table in the README before moving it.
+ *
+ * Default: switch between the pin and GND, idle pulled up, pressed reads LOW.
+ * Define SESSION_BUTTON_ACTIVE_HIGH to wire it to a spare 3V3 instead, which
+ * flips the internal pull to a pull-down so the idle level is still the released
+ * one. Either way the pin is never left floating: a floating input on a wire
+ * running to a steering wheel picks up enough to toggle on its own. */
+#if defined(SESSION_BUTTON_ACTIVE_HIGH)
+#define SESSION_BUTTON_ACTIVE_LEVEL HIGH
+#define SESSION_BUTTON_IDLE_MODE    INPUT_PULLDOWN
+#else
+#define SESSION_BUTTON_ACTIVE_LEVEL LOW
+#define SESSION_BUTTON_IDLE_MODE    INPUT_PULLUP
+#endif
+
+#if !defined(SESSION_BUTTON_DEBOUNCE_MS)
+#define SESSION_BUTTON_DEBOUNCE_MS 25
+#endif
+
+static SessionButton sessionButton(SESSION_BUTTON_HOLD_MS,
+                                   SESSION_BUTTON_DEBOUNCE_MS);
+#endif
 
 // Smoothing & Metrics
 float displaySpeed = 0;
@@ -597,6 +625,15 @@ void setup() {
     logManager.begin();
     displayBattery.begin();
 
+#if defined(SESSION_BUTTON_PIN)
+    /* Pull the pin to the *idle* rail, so an open switch reads as released and a
+     * broken wire fails to "not pressed" rather than to a stuck session. */
+    pinMode(SESSION_BUTTON_PIN, SESSION_BUTTON_IDLE_MODE);
+    log_i("Session button on GPIO %d, active %s, hold %d ms to stop.",
+          SESSION_BUTTON_PIN, SESSION_BUTTON_ACTIVE_LEVEL ? "HIGH" : "LOW",
+          SESSION_BUTTON_HOLD_MS);
+#endif
+
     if (!gps.begin()) {
         log_e("GPS failed to start on RX=%d TX=%d!", GPS_STANDALONE_RX, GPS_STANDALONE_TX);
     }
@@ -753,6 +790,38 @@ static void serviceChargeMode(uint32_t now) {
         log_i("Charge mode: %d%% (%.2fV)", pct, volts);
     }
 }
+
+#if defined(SESSION_BUTTON_PIN)
+/* Tap to start a session, hold SESSION_BUTTON_HOLD_MS to stop one.
+ *
+ * Routed through the same entry points the on-screen controls use, so the button
+ * cannot drift from the touch UI. Starting calls ui_session_clicked() rather than
+ * ui_helper_toggle_session() directly: the start gesture is the 3-2-1 overlay with
+ * the track name and a CANCEL, and going straight to toggle_session() would skip
+ * the one chance to notice the wrong track is selected.
+ *
+ * Called with the display lock held, because those entry points reach LVGL via
+ * setSessionState(). Nothing here touches the card — LogManager::startSession()
+ * and stopSession() only raise a flag for LogTask. */
+static void serviceSessionButton(uint32_t now) {
+    SessionButtonEvent ev = sessionButton.update(
+        digitalRead(SESSION_BUTTON_PIN) == SESSION_BUTTON_ACTIVE_LEVEL, now);
+    bool active = logManager.isSessionActive();
+
+    if (ev == SB_SHORT_PRESS && !active) {
+        log_i("Session button: tap - arming session countdown.");
+        ui_session_clicked(nullptr);   /* ignores the event arg */
+    } else if (ev == SB_HOLD_COMPLETE && active) {
+        log_i("Session button: held - stopping session.");
+        ui_helper_stop_session();
+    }
+
+    /* Countdown only while something is actually recording. Holding the button
+     * with no session running has nothing to stop, and counting down to a stop
+     * that will not happen is worse than showing nothing. */
+    uiHelper.setHoldCountdown(active ? sessionButton.countdownSeconds() : 0);
+}
+#endif
 
 void loop() {
     uint32_t now = millis();
@@ -947,6 +1016,10 @@ void loop() {
     }
 
     bsp_display_lock(0);
+
+#if defined(SESSION_BUTTON_PIN)
+    serviceSessionButton(now);
+#endif
 
 #if defined(ENABLE_IMU)
     if (imuReady) {

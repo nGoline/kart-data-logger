@@ -33,7 +33,7 @@ DEMO_H := $(ROOT)/lib/DemoTrack/DemoTrack.h
 #            round is not an error, it is a lap counter stuck at zero.
 LAPTOOLS := replay sectors delta demo
 
-all: $(LAPTOOLS) navpvt
+all: $(LAPTOOLS) navpvt sessionbutton
 
 # $(filter %.cpp,$^) links only the sources while $^ still tracks the header
 # prerequisites.
@@ -49,7 +49,15 @@ navpvt: navpvt.cpp $(ROOT)/lib/GpsManager/providers/UbloxGpsProvider.cpp \
 	$(CXX) $(CXXFLAGS) -I$(ROOT)/lib/GpsManager/providers -o $@ \
 	    navpvt.cpp $(ROOT)/lib/GpsManager/providers/UbloxGpsProvider.cpp
 
+# The session button is pure timing logic, so it replays exactly here: bounce
+# windows, a release a millisecond short of the hold, the millis() wrap. The
+# header is a prerequisite for the same reason as LAP_H above — a stale binary
+# would report the old hold and debounce numbers without saying so.
+sessionbutton: sessionbutton.cpp $(ROOT)/lib/SessionButton/SessionButton.cpp \
+               $(ROOT)/lib/SessionButton/SessionButton.h
+	$(CXX) $(CXXFLAGS) -I$(ROOT)/lib/SessionButton -o $@ $(filter %.cpp,$^)
+
 clean:
-	rm -f replay sectors delta demo navpvt
+	rm -f replay sectors delta demo navpvt sessionbutton
 
 .PHONY: clean
