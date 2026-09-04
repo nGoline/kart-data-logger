@@ -547,3 +547,4 @@ dash2_mode_t ui_dash2_get_mode(void) { return s_mode; }
 
 /* LOCAL: see the header. */
 lv_obj_t *ui_dash2_get_speed_obj(void) { return lbl_speed_v; }
+lv_obj_t *ui_dash2_get_clock_obj(void) { return clock_box; }

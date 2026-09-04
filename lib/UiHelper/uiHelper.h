@@ -98,6 +98,11 @@ public:
                     const uint32_t *timeMs, const bool *valid);
     void setTheme(dash_mode_t mode);                   /* day / night swap */
     void setSessionState(bool active);                 /* updates button label + recording panel */
+
+    /* DEMO mode. Takes over the status bar's REC cell so synthetic laps cannot
+     * be mistaken for a recorded session. Mutually exclusive with
+     * setSessionState(true). */
+    void setDemoState(bool on);
     void tickRecordingPanel();                         /* call every frame to drive the blink */
     void setTracks(const char *const *names, int count);
     void setTrackIdx(int idx);
@@ -131,6 +136,10 @@ private:
                                        lv_obj_t **out_label);
     static void build_charge_screen(void);             /* hand-built; not a SquareLine export */
     static void build_charge_mode_button(void);        /* injected into the config screen at runtime */
+    static void build_demo_button(void);               /* ditto, directly below it */
+    /* One cell, one animation, one place that decides what it says. */
+    enum rec_cell_t { REC_OFF = 0, REC_SESSION, REC_DEMO };
+    static void set_rec_cell(rec_cell_t mode);
     static void build_version_label(void);             /* ditto — FW_VERSION in the setup header */
     static void refresh_track_name(void);
     static void refresh_coord_row(setup_line_side_t side);
@@ -165,7 +174,7 @@ private:
     static lv_obj_t *s_rec_panel;
     static lv_obj_t *s_rec_dot;
     static lv_obj_t *s_rec_lbl;
-    static bool      s_rec_active;
+    static rec_cell_t s_rec_mode;
     static lv_obj_t *s_wifi_panel;
     static lv_obj_t *s_wifi_var;
     static lv_obj_t *s_wifi_btn_lbl;

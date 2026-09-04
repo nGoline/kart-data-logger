@@ -22,7 +22,7 @@ uint8_t       UiHelper::s_cam_batt    = 255;
 lv_obj_t     *UiHelper::s_rec_panel    = nullptr;
 lv_obj_t     *UiHelper::s_rec_dot      = nullptr;
 lv_obj_t     *UiHelper::s_rec_lbl      = nullptr;
-bool          UiHelper::s_rec_active   = false;
+UiHelper::rec_cell_t UiHelper::s_rec_mode = UiHelper::REC_OFF;
 lv_obj_t     *UiHelper::s_wifi_panel   = nullptr;
 lv_obj_t     *UiHelper::s_wifi_var     = nullptr;
 lv_obj_t     *UiHelper::s_wifi_btn_lbl = nullptr;
@@ -37,10 +37,25 @@ lv_obj_t *UiHelper::s_charge_volts  = nullptr;
 /* helper */
 static inline lv_color_t C(uint32_t hex) { return lv_color_hex(hex); }
 
+/* Implemented in src/main_display.cpp; up here because dash_speed_cb() calls
+ * one of them. */
+extern "C" void ui_helper_enter_demo_mode(void);
+extern "C" void ui_helper_exit_demo_mode(void);
+extern "C" void ui_helper_demo_skip_lap(void);
+
+/* Tap the lap clock to skip the rest of the demo's lap. A no-op outside demo
+ * mode, so the box is inert on a real session. */
+static void dash_clock_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_helper_demo_skip_lap();
+}
+
 /* Tap the speed readout to reach setup — the affordance the SquareLine
  * dashboard had, restored on the v2 screen. */
 static void dash_speed_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    /* The way off the dashboard is also the way out of demo mode: synthetic
+     * telemetry left running would put fake laps on the dash next time. */
+    ui_helper_exit_demo_mode();
     _ui_screen_change(&ui_configscreen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 500, 0,
                       &ui_configscreen_screen_init);
 }
@@ -98,6 +113,14 @@ void UiHelper::init() {
             lv_obj_set_ext_click_area(spd, 24);
             lv_obj_add_event_cb(spd, dash_speed_cb, LV_EVENT_CLICKED, NULL);
         }
+
+        // The lap clock skips the demo's lap. Already big enough to hit, so
+        // no extra click area.
+        lv_obj_t *clk = ui_dash2_get_clock_obj();
+        if (clk) {
+            lv_obj_add_flag(clk, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(clk, dash_clock_cb, LV_EVENT_CLICKED, NULL);
+        }
     }
 
     //Reparent the status bar panel to the persistent top layer
@@ -138,6 +161,7 @@ void UiHelper::init() {
     // SquareLine, so re-exporting lib/ui/ does not wipe them.
     build_charge_screen();
     build_charge_mode_button();
+    build_demo_button();
     build_version_label();
     build_alert_banner();
 
@@ -196,9 +220,11 @@ void UiHelper::build_version_label(void) {
  *    lock. See the bridges in src/main_display.cpp.
  * ============================================================================ */
 
-/* CHARGE MODE button, appended to the config screen's button column. */
-void UiHelper::build_charge_mode_button(void) {
-    if (!ui_panelsetupbuttons) return;
+/* The config screen's big injected buttons (CHARGE MODE, DEMO): a left-aligned
+ * label in the Barlow face on the darker surface, rather than
+ * make_setup_button()'s styling. Built here so the two stay a pair. */
+static lv_obj_t *build_config_column_button(const char *text, lv_event_cb_t cb) {
+    if (!ui_panelsetupbuttons) return NULL;
 
     lv_obj_t *btn = lv_button_create(ui_panelsetupbuttons);
     lv_obj_set_width(btn, 250);
@@ -214,19 +240,40 @@ void UiHelper::build_charge_mode_button(void) {
     lv_obj_set_style_border_color(btn, C(0x6B7280), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_opa(btn, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_flex_grow(btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_obj_t *lbl = lv_label_create(btn);
     lv_obj_set_width(lbl, LV_SIZE_CONTENT);
     lv_obj_set_height(lbl, LV_SIZE_CONTENT);
     lv_obj_set_align(lbl, LV_ALIGN_LEFT_MID);
-    lv_label_set_text(lbl, "CHARGE MODE");
+    lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, C(0xF6F8FB), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(lbl, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(lbl, &ui_font_BarlowCondensedBold32, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+    return btn;
+}
+
+/* CHARGE MODE button, appended to the config screen's button column. */
+void UiHelper::build_charge_mode_button(void) {
+    build_config_column_button("CHARGE MODE", [](lv_event_t *e) {
         if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_helper_enter_charge_mode();
-    }, LV_EVENT_CLICKED, NULL);
+    });
+}
+
+/* DEMO button, directly below CHARGE MODE. The callback only sets a flag:
+ * entering demo mode repoints LapManager, which is not work for an LVGL
+ * callback. */
+void UiHelper::build_demo_button(void) {
+    build_config_column_button("DEMO", [](lv_event_t *e) {
+        if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+        ui_helper_enter_demo_mode();
+        /* Straight to the dashboard — safe here because a button callback is
+         * already in LVGL context. The mode itself comes up next loop(). */
+        _ui_screen_change(&ui_dashboardscreen, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 500, 0,
+                          &ui_dashboardscreen_screen_init);
+    });
 }
 
 /* Charge screen: big battery readout plus an explicit RESUME button. A tap
@@ -503,15 +550,9 @@ void UiHelper::setSectors(int current, uint32_t runningMs, const int64_t *deltaM
     static int32_t  lastVal[3]   = { INT32_MIN, INT32_MIN, INT32_MIN };
     static uint32_t lastSplitTenths = 0xFFFFFFFF;
 
-    /* ONE writer for cell state, including which cell is active. It used to be
-     * two: this loop computed a state per cell, and a separate enter-sector call
-     * set the driven one ACTIVE behind its back. The loop then computed PENDING
-     * for that cell — correctly, it has not closed — saw PENDING already cached,
-     * and skipped the call. So the widget stayed ACTIVE with nobody able to
-     * clear it, and stopping a session left an amber cell showing a stale
-     * running split for ever. Folding ACTIVE into the same
-     * computation means the diff and the truth cannot drift apart, and
-     * ui_dash2_set_sector() is now the only way in. */
+    /* ONE writer for cell state, including which cell is active: folding
+     * ACTIVE into the same computation as the rest is what stops the diff
+     * cache and the widget drifting apart. */
     for (int i = 0; i < 3; i++) {
         bool    ok = (valid && valid[i]);
         int64_t d  = ok ? deltaMs[i] : LapManager::LAP_SECTOR_NO_DELTA;
@@ -1230,8 +1271,11 @@ void UiHelper::setTheme(dash_mode_t mode) {
 extern "C" void ui_helper_stop_session(void);   /* implemented in main_display */
 
 static void rec_cell_cb(lv_event_t *e) {
-    /* Same behaviour the old dashboard panel had: tap it to stop. */
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_helper_stop_session();
+    /* Tap to stop. The cell doubles as the DEMO indicator, so it stops
+     * whichever is running; both calls no-op when their mode is not. */
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ui_helper_exit_demo_mode();
+    ui_helper_stop_session();
 }
 
 void UiHelper::build_rec_cell(void) {
@@ -1277,35 +1321,54 @@ static void rec_blink_cb(void *obj, int32_t v) {
     lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
 }
 
-void UiHelper::setSessionState(bool active) {
-    if (ui_labelstartsession)
-        lv_label_set_text(ui_labelstartsession, active ? "STOP SESSION" : "START SESSION");
+void UiHelper::set_rec_cell(rec_cell_t mode) {
+    if (!s_rec_panel || mode == s_rec_mode) return;
+    s_rec_mode = mode;
 
-    if (!s_rec_panel) return;
-    if (active == s_rec_active) return;
-    s_rec_active = active;
-
-    if (active) {
-        lv_obj_remove_flag(s_rec_panel, LV_OBJ_FLAG_HIDDEN);
-        /* Blink via LVGL's animator rather than repainting from loop(): in this
-         * backend every style write costs a full-frame QSPI blit, and the old
-         * per-frame tick was doing that twice a second forever. */
-        lv_anim_t a;
-        lv_anim_init(&a);
-        lv_anim_set_var(&a, s_rec_dot);
-        lv_anim_set_exec_cb(&a, rec_blink_cb);
-        lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_20);
-        lv_anim_set_duration(&a, 450);
-        lv_anim_set_playback_duration(&a, 450);
-        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_start(&a);
-    } else {
+    if (mode == REC_OFF) {
         lv_anim_delete(s_rec_dot, rec_blink_cb);
         lv_obj_set_style_opa(s_rec_dot, LV_OPA_COVER, 0);
         lv_obj_add_flag(s_rec_panel, LV_OBJ_FLAG_HIDDEN);
+        return;
     }
+
+    /* Accent, not red: red on this bar means "being written to the card". */
+    uint32_t col = (mode == REC_DEMO) ? T.accent : T.bad;
+    lv_label_set_text(s_rec_lbl, (mode == REC_DEMO) ? "DEMO" : "REC");
+    lv_obj_set_style_text_color(s_rec_lbl, C(col), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_rec_dot, C(col), 0);
+    lv_obj_remove_flag(s_rec_panel, LV_OBJ_FLAG_HIDDEN);
+
+    /* Restarted rather than left running, so switching mode cannot leave the
+     * dot mid-fade at the old colour. Via LVGL's animator rather than from
+     * loop(): every style write here costs a full-frame QSPI blit. */
+    lv_anim_delete(s_rec_dot, rec_blink_cb);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_rec_dot);
+    lv_anim_set_exec_cb(&a, rec_blink_cb);
+    lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_20);
+    lv_anim_set_duration(&a, 450);
+    lv_anim_set_playback_duration(&a, 450);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
 }
 
+void UiHelper::setSessionState(bool active) {
+    if (ui_labelstartsession)
+        lv_label_set_text(ui_labelstartsession, active ? "STOP SESSION" : "START SESSION");
+    set_rec_cell(active ? REC_SESSION : REC_OFF);
+}
+
+void UiHelper::setDemoState(bool on) {
+    /* Never clobbers a live REC: a session and a demo cannot both be running,
+     * and if they somehow were, the recording is the one that must show. */
+    if (!on && s_rec_mode != REC_DEMO) return;
+    set_rec_cell(on ? REC_DEMO : REC_OFF);
+}
+
+/* Kept so the call site in loop() needs no #ifdef. The blink is an LVGL
+ * animation now, so there is nothing to tick. */
 void UiHelper::tickRecordingPanel() {}
 
 /* ============================================================================

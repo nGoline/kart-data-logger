@@ -16,6 +16,7 @@ extern "C" {
 #include "BatteryManager.h"
 #include "ConfigManager.h"
 #include "LapManager.h"
+#include "DemoTrack.h"
 #include "GpsManager.h"
 
 #if defined(ENABLE_GOPRO)
@@ -162,10 +163,35 @@ static void initLapTrace() {
     lapManager.setTraceBuffers(s_traceRef, s_traceCur, LAP_TRACE_POINTS);
 }
 
-/* Lap timing runs for a real session. The log enqueue deliberately does not
- * consult this — it stays gated on the session alone. */
+/* ============================================================================
+ * DEMO MODE
+ * Drives the real dashboard from synthetic telemetry, so the whole live path
+ * runs exactly as it does on track. Nothing is written to the card, so a demo
+ * leaves no session behind. It installs its own gates — the selected track may
+ * be nowhere near, or have no split gates at all — and puts the real track's
+ * back on the way out.
+ * ========================================================================= */
+static DemoTrack s_demo;
+static bool s_demoMode = false;
+
+// Set from LVGL callbacks, consumed in loop() — same rule as charge mode.
+static volatile bool s_demoEnterPending = false;
+static volatile bool s_demoExitPending  = false;
+static volatile bool s_demoSkipPending  = false;
+/* A finish-line crossing found while draining demo frames, handed to syncUI so
+ * the header and the best-lap flash still run in one place. At most one can
+ * happen per pass: a pass advances about a second of simulation and a lap is
+ * forty. */
+static bool s_demoLapDone = false;
+
+extern "C" void ui_helper_enter_demo_mode(void) { s_demoEnterPending = true; }
+extern "C" void ui_helper_exit_demo_mode(void)  { s_demoExitPending  = true; }
+extern "C" void ui_helper_demo_skip_lap(void)   { s_demoSkipPending  = true; }
+
+/* Lap timing runs for a real session or a demo. The log enqueue deliberately
+ * does not consult this — it stays gated on the session alone. */
 static inline bool timingActive() {
-    return logManager.isSessionActive();
+    return logManager.isSessionActive() || s_demoMode;
 }
 
 // Push a track's split gates into LapManager. Must follow setFinishLine(),
@@ -191,6 +217,54 @@ static void applyTrack(const TrackConfig *t) {
 
 static const TrackConfig *selectedTrack() {
     return configManager.getTrack((int)configManager.getSelectedTrack());
+}
+
+static void enterDemoMode() {
+    if (s_demoMode) return;
+    if (logManager.isSessionActive()) {
+        /* Refused rather than silently stopping the session: a demo is not
+         * worth ending a recording for. */
+        log_w("DEMO: a session is recording — stop it first");
+        return;
+    }
+
+    s_demo.begin();
+
+    FinishLine g[DemoTrack::GATE_COUNT];
+    s_demo.gates(g);
+    lapManager.setFinishLine(g[DemoTrack::GATE_END]);
+    lapManager.setSectorGates(&g[DemoTrack::GATE_S1], &g[DemoTrack::GATE_S2]);
+
+    s_lapCount = 0;
+    s_demoMode = true;
+
+    /* Under the display lock: this runs in loop(), not in LVGL context. */
+    bsp_display_lock(0);
+    uiHelper.setLap(0, "", "");
+    uiHelper.setDemoState(true);
+    bsp_display_unlock();
+
+    log_i("DEMO: started on the synthetic oval");
+}
+
+static void exitDemoMode() {
+    if (!s_demoMode) return;
+    s_demoMode = false;
+    s_lapCount = 0;
+
+    /* Put the real track back. setFinishLine() also clears the reference trace,
+     * so the demo's laps cannot become the delta reference for a real session. */
+    applyTrack(selectedTrack());
+
+    bsp_display_lock(0);
+    uiHelper.setDemoState(false);
+    uiHelper.setLap(0, "", "");
+    uiHelper.setLiveDelta(0, false);
+    uiHelper.setDeltaBar(0, false);
+    uiHelper.setLapClock(0);
+    bsp_display_unlock();
+
+    log_i("DEMO: stopped, real track restored");
 }
 
 // ============================================================================
@@ -352,8 +426,13 @@ void syncUI() {
             uiHelper.setGps(lastSats);
         }
 
-        // 9. Lap Detection — only while a session is active
-        if (timingActive() && lapManager.processTelemetry(telemetry)) {
+        // 9. Lap Detection — only while a session is active. Demo frames are
+        // already fed to LapManager as they are drained, so they arrive here as
+        // a flag rather than being processed twice.
+        bool lapDone = s_demoMode ? s_demoLapDone
+                                  : (timingActive() && lapManager.processTelemetry(telemetry));
+        s_demoLapDone = false;
+        if (lapDone) {
             s_lapCount++;
             uint64_t lt = lapManager.getLastLapTime();
             uint64_t bt = lapManager.getBestLapTime();
@@ -689,6 +768,18 @@ void loop() {
         s_chargeExitPending = false;
         if (s_chargeMode) exitChargeMode();
     }
+    if (s_demoEnterPending) { s_demoEnterPending = false; enterDemoMode(); }
+    if (s_demoExitPending)  { s_demoExitPending  = false; exitDemoMode();  }
+    if (s_demoSkipPending) {
+        s_demoSkipPending = false;
+        /* Ignored outside a demo: the lap clock is a live readout there, not a
+         * control, and there is no synthetic lap to skip. */
+        if (s_demoMode) {
+            s_demo.skipToNextLap();
+            log_i("DEMO: skipping to the next lap");
+        }
+    }
+
     // Ahead of everything below on purpose: charge mode is a parking state, so
     // it must not fall through to session analysis (a multi-second SD stream)
     // or the dashboard repaint. Both would defeat the point of the mode.
@@ -724,7 +815,21 @@ void loop() {
      * measured session lost 24% of its rows without the health counter noticing,
      * the frames being discarded upstream of the queue. The UI still consumes
      * only the newest via newTelemetryAvailable; only the log needs all of them. */
-    while (gps.update()) {
+    /* Demo mode substitutes for the receiver entirely. Same while-loop shape
+     * as the real drain below, so a slow pass catches up.
+     *
+     * Unlike the real drain, every frame goes into LapManager here rather than
+     * only the newest surviving to syncUI. A skip emits up to 25 frames in one
+     * pass, and handing over just the last of them leaves consecutive fixes a
+     * second of simulation apart - about 22 m - which steps straight over a
+     * 14 m gate and loses the lap. */
+    while (s_demoMode && s_demo.update(now, telemetry)) {
+        newTelemetryAvailable = true;
+        if (timingActive() && lapManager.processTelemetry(telemetry))
+            s_demoLapDone = true;
+    }
+
+    while (!s_demoMode && gps.update()) {
         /* IMU removed — no accelerometer on this build. The g-force and gyro
          * fields stay in the message (and the CSV) as zeros so old sessions and
          * SessionBrowser keep parsing; a future 9-DoF refills them. */
@@ -790,10 +895,17 @@ void loop() {
         lastGpsLogMs  = now;
         lastGpsFrames = frames;
 
-        GpsFixInfo fi = gps.getFixInfo();
-        log_i("GPS: sats=%lu fix=%u ok=%d pdop=%.1f hAcc=%.1fm rate=%.1fHz",
-              (unsigned long)gps.getSatellites(), (unsigned)fi.fixType,
-              fi.gnssFixOK ? 1 : 0, fi.pdop, fi.hAccM, hz);
+        /* gps.update() is never called in demo mode, so the frame counter does
+         * not move. Say so rather than reporting 0.0Hz, which reads as a dead
+         * receiver. */
+        if (s_demoMode) {
+            log_i("GPS: DEMO MODE — synthetic telemetry, receiver not being read");
+        } else {
+            GpsFixInfo fi = gps.getFixInfo();
+            log_i("GPS: sats=%lu fix=%u ok=%d pdop=%.1f hAcc=%.1fm rate=%.1fHz",
+                  (unsigned long)gps.getSatellites(), (unsigned)fi.fixType,
+                  fi.gnssFixOK ? 1 : 0, fi.pdop, fi.hAccM, hz);
+        }
     }
 
     // Once-a-second health reporting

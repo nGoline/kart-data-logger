@@ -116,6 +116,10 @@ dash2_mode_t ui_dash2_get_mode(void);
  * navigation, so the firmware attaches its own handler here. */
 lv_obj_t *ui_dash2_get_speed_obj(void);
 
+/* LOCAL: the lap clock is a tap target too, for DEMO mode's skip-to-next-lap.
+ * Same arrangement as the speed readout above. */
+lv_obj_t *ui_dash2_get_clock_obj(void);
+
 #ifdef __cplusplus
 }
 #endif
