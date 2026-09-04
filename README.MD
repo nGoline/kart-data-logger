@@ -168,6 +168,55 @@ Watch for collisions when changing these: `GPIO5` carries the battery sense
 divider (`DISPLAY_BATT_ADC` in `src/main_display.cpp`), and `GPIO18`/`GPIO17`
 are the IMU's I2C pins when `ENABLE_IMU` is set.
 
+## Session button
+
+A momentary switch wired between `SESSION_BUTTON_PIN` and GND starts and stops
+recording without touching the screen — the dash is on the steering wheel and the
+touch target is small with gloves on.
+
+* **Tap** — runs the same start gesture as the on-screen START button: the
+  full-screen 3-2-1 overlay with the track name and a CANCEL, then the session
+  begins (GoPro rolls, active track's finish line re-applied).
+* **Hold 3 s** — stops it, counting `3 - 2 - 1` on the dashboard. Let go early and
+  nothing happens.
+
+The start overlay is parented to whatever screen is showing rather than to the
+config screen, so it is visible when the physical button fires it from the
+dashboard. Tapped from the config screen those are the same object, so the
+on-screen button is unchanged.
+
+The button is inert in charge mode — `loop()` returns before the display lock is
+taken there, which is the point of that mode.
+
+A tap while a session is already running does nothing: stopping is deliberately
+the harder gesture, since an accidental stop costs the rest of the session.
+
+Configured in `platformio.ini`:
+
+| Flag | Default | Notes |
+|---|---|---|
+| `SESSION_BUTTON_PIN` | `6` | Comment out to build without a button |
+| `SESSION_BUTTON_HOLD_MS` | `3000` | Hold time for the stop |
+| `SESSION_BUTTON_ACTIVE_HIGH` | off | Set when the switch goes to 3V3 rather than GND |
+| `SESSION_BUTTON_DEBOUNCE_MS` | `25` | Raise it if a long lead registers phantom taps |
+
+Wire the switch between the pin and **GND** by default. If the spare wire in the
+loom is a 3V3 instead, wire it pin-to-3V3 and set `SESSION_BUTTON_ACTIVE_HIGH` —
+that swaps the internal pull-up for a pull-down, so the idle level is still the
+released one. The pin is pulled to the idle rail either way and never left
+floating: a floating input on a wire run out to a steering wheel picks up enough
+to toggle on its own, and a broken wire then reads as *released* rather than as a
+stuck press.
+
+GPIO 6 is the ATGM336's old RX pad, already broken out and in the loom now that
+the GPS is on 17/18. Other free pins: 7, 9, 10, 14, 15, 16, 41, 42. Avoid 0, 3,
+45, 46 (strapping), 19/20 (native USB), 43/44 (UART0) and 26-37 (flash/PSRAM).
+
+The state machine (`lib/SessionButton`) holds no GPIO or LVGL state, so it is
+replayed on the host by `tools/lapreplay/sessionbutton.cpp` — bounce windows, a
+release a millisecond short of the hold, and the `millis()` wrap, none of which
+can be produced reliably with a thumb.
+
 ## Filesystem & Storage
 
 The display reads and writes to a **FAT32 microSD** card. No files need to be

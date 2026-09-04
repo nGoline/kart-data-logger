@@ -119,11 +119,16 @@ public:
     /* Dashboard alert banner. Hidden at zero; tapping it opens the log screen. */
     void setAlert(uint16_t errors, uint16_t warnings);
 
+    /* Countdown while the physical button is held to stop a session. Pass the
+     * seconds remaining (3-2-1); 0 hides it. */
+    void setHoldCountdown(uint8_t secondsLeft);
+
 private:
     static void paint_delta(float seconds, bool valid,
                             dash2_delta_state_t st, uint32_t now, bool force);
 
     static void build_alert_banner(void);
+    static void build_hold_overlay(void);
     static uint32_t batt_color(uint8_t pct);
     static uint32_t gps_color(uint8_t n);
     static void build_camera_cell(void);
